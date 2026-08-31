@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "python .github/hooks/scripts/security_guard.py",
+        "bash": "python3 .github/hooks/scripts/security_guard.py",
+        "powershell": "python .github/hooks/scripts/security_guard.py",
+        "cwd": ".",
+        "timeout": 5
+      }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "servers": {
+    "duckdb": {
+      "type": "stdio",
+      "command": "mcp-server-motherduck",
+      "args": ["--db-path", ":memory:", "--read-write"],
+      "cwd": "${workspaceFolder}",
+      "sandboxEnabled": false
+    },
+    "markitdown": {
+      "type": "stdio",
+      "command": "markitdown-mcp",
+      "cwd": "${workspaceFolder}",
+      "sandboxEnabled": false
+    }
+  }
+}
