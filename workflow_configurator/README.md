@@ -300,6 +300,17 @@ local baseline after every item has a decision. It sends no project data and
 never installs or applies upstream content. Network failure preserves the last
 report. Use `gui.py --no-update-check` for an explicitly offline launch.
 
+Analyze and Preview include a deterministic **Context footprint** comparison
+between the current project and the result of safe Apply. It reports lines and
+UTF-8 bytes for always-on, path-specific, and on-demand context; handoff/plan
+size; configured MCP servers; searchable historical material; and exact
+duplicate instruction blocks. It is a context proxy, not an exact token or cost
+forecast.
+
+Memory & Code health derives a policy-aware continuity status:
+`READY`, `LIMITED`, `DEGRADED`, or `DISABLED`. Raw service diagnostics remain
+available below the summary.
+
 The same page can preview and export a local Copilot plugin containing only the
 five reviewed generic specialists. The preview lists every file and SHA-256
 digest; export refuses an existing destination and does not install, enable,

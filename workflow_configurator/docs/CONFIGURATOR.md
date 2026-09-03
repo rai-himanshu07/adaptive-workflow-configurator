@@ -54,6 +54,100 @@ The native editor shows each derived value, selected value, and whether it is
 stronger, equal, or weaker. Weaker values require a reason and Apply
 confirmation.
 
+`auto` removes the explicit override and uses the value derived from complexity,
+project size, testing level, rigor, selected integrations, and security hooks.
+Options below are ordered from lighter to stronger. Stronger plan,
+documentation, memory, code-intelligence, review, or guard choices can promote
+the effective generated file set even when the installation-surface override is
+lighter.
+
+#### Installation surface
+
+Controls the generated workflow-file bundle. This is a floor, not an absolute
+cap: stronger choices in other dimensions can promote it.
+
+| Option | Behavior |
+|---|---|
+| `minimal` | Install only compact always-on instructions and the generated workflow configuration; stronger plan, documentation, memory, code-intelligence, review, or guard choices can still promote the effective file set. |
+| `standard` | Add planner/executor/reviewer roles, compact handoff and resume skills, the project doctor, and context exclusions when enabled. |
+| `governed` | Add the Standard surface plus governed planning, memory, code-intelligence, environment, observability, MCP, and safety guidance. |
+
+#### Plan tier
+
+Controls whether work needs no plan, a small inline plan, a compact persisted
+plan, or a governed specification.
+
+| Option | Behavior |
+|---|---|
+| `none` | No plan artifact for questions, research, docs, or trivial configuration. |
+| `mini` | Inline or mini plan, at most 25 lines, for bounded low-risk edits. |
+| `compact` | Compact approved plan, at most 80 lines, for coupled or multi-session changes; ensures at least the Standard surface and a `docs/plans` directory. |
+| `governed` | Governed specification and risk record before implementation; promotes the Governed surface, while Spec Kit can own the plan artifacts. |
+
+#### Validation tier
+
+Controls expected verification scope. It neither installs a test runner nor
+weakens permanent safety checks.
+
+| Option | Behavior |
+|---|---|
+| `none` | No code tests for research/docs; use only the smallest applicable diagnostic. |
+| `focused` | Run the smallest affected check after a coherent implementation slice. |
+| `broad` | Run focused checks plus broad relevant tests or diagnostics at a logical checkpoint. |
+
+#### Documentation tier
+
+Controls ongoing documentation and handoff obligations. It never permits
+skipping user-facing or operational documentation directly affected by a task.
+
+| Option | Behavior |
+|---|---|
+| `changed-only` | Update only user-facing or operational documentation changed by the task. |
+| `handoff` | Keep a concise current-state handoff for work that spans sessions; ensures at least the Standard surface. |
+| `full` | Maintain governed handoff, recovery, and operator evidence without copied command output; promotes the Governed surface. |
+
+#### Memory policy
+
+Controls MemPalace invocation. The canonical project wing remains configured
+even when memory use is off.
+
+| Option | Behavior |
+|---|---|
+| `off` | Do not call project memory when history is explicitly irrelevant. |
+| `on-demand` | Use the canonical project wing only when prior decisions or session history matter. |
+| `required` | Use project-scoped retrieval and an explicit-wing checkpoint for substantial work; promotes the Governed surface. |
+
+#### Code-intelligence policy
+
+Controls codebase-memory usage. The configured project identity remains
+available and live files remain authoritative.
+
+| Option | Behavior |
+|---|---|
+| `off` | Use live files and language/text search for the bounded task. |
+| `on-demand` | Use available graph tools when architecture, callers, impact, or reuse discovery matters. |
+| `required` | Verify the available graph surface and use it for architecture and impact before editing; promotes the Governed surface. |
+
+#### Review tier
+
+Controls who must review completed work. It never authorizes overwriting a
+conflicting project file.
+
+| Option | Behavior |
+|---|---|
+| `self` | Self-review the final diff and relevant evidence; do not manufacture findings. |
+| `independent` | Independent read-only review is required before completion or release; promotes the Governed surface. |
+
+#### Protocol guard
+
+Controls the optional local workflow hook. It never replaces human review or
+the configurator's permanent safety boundaries.
+
+| Option | Behavior |
+|---|---|
+| `off` | Do not install the optional workflow guard; hard path, secret, preview, collision, and transactional safeguards remain active. |
+| `on` | Install the reviewed local guard that checks handoff, plan, and change-isolation facts; promotes the Governed surface but cannot prove external memory, review, or test success. |
+
 Hard safety is not represented as an override:
 
 - path/symlink boundaries;
@@ -111,6 +205,20 @@ ratios, customization counts, plan/handoff budgets, legacy generated surface,
 large files/Python functions, memory topology, code-graph state, and redacted
 MCP configuration findings.
 
+It also reports a deterministic context-footprint proxy for current and
+safe-post-Apply state:
+
+- always-on instruction lines and UTF-8 bytes;
+- path-specific and on-demand workflow context;
+- handoff and active-plan size;
+- configured MCP server count;
+- searchable historical material;
+- exact repeated instruction blocks across context files.
+
+The report does not estimate exact model tokens, cache behavior, runtime tool
+schemas, or retrieved-memory volume. Measure those separately through trusted
+local telemetry when needed.
+
 Existing user-owned files are never overwritten. Conflicts remain proposals
 with intended content and diffs. Old generated files outside the selected
 surface are reported for manual cleanup and never deleted.
@@ -152,6 +260,16 @@ decisions and session synthesis.
 Health checks are read-only and bounded. They display MemPalace version,
 backend/wing aliases, writable/blocked state, hub status, and code graph
 root/HEAD/nodes/edges/change state where available.
+
+The GUI interprets those facts according to the resolved policy:
+
+- `READY`: configured services are ready;
+- `LIMITED`: an on-demand service is unavailable when requested;
+- `DEGRADED`: a service required by policy is not ready;
+- `DISABLED`: continuity services were deliberately disabled.
+
+This status affects continuity expectations, not safe file-configuration
+availability. Raw technical health remains visible below the summary.
 
 MemPalace 3.6 writable MCP sessions can block manual mining. A reviewed 3.8
 shared writable hub is recommended for multi-session/manual-mine use. The

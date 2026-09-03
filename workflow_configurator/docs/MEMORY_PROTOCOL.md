@@ -1,7 +1,9 @@
 # MemPalace Protocol
 
-MemPalace is mandatory for this personal workflow. It preserves durable
-synthesis across sessions; it does not replace the live working tree.
+MemPalace preserves durable synthesis across sessions; it does not replace the
+live working tree. It is mandatory only when the resolved memory policy is
+`required`, used selectively when the policy is `on-demand`, and skipped when
+the policy is `off`.
 
 The canonical project wing is `{{MEMORY_WING}}`. Supply it explicitly to every
 project diary read, search, checkpoint item, checkpoint diary, mine, and sync.

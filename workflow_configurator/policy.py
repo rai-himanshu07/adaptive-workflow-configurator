@@ -52,11 +52,32 @@ _POLICY_RANKS = {
     for dimension, values in POLICY_DIMENSION_VALUES.items()
 }
 _POLICY_DESCRIPTIONS = {
+    "installation_surface": {
+        "minimal": (
+            "install only compact always-on instructions and the generated workflow "
+            "configuration; stronger plan, documentation, memory, code-intelligence, "
+            "review, or guard choices can still promote the effective file set"
+        ),
+        "standard": (
+            "add planner/executor/reviewer roles, compact handoff and resume skills, "
+            "the project doctor, and context exclusions when enabled"
+        ),
+        "governed": (
+            "add the Standard surface plus governed planning, memory, code-intelligence, "
+            "environment, observability, MCP, and safety guidance"
+        ),
+    },
     "plan_tier": {
         "none": "no plan artifact for questions, research, docs, or trivial configuration",
         "mini": "inline or mini plan, at most 25 lines, for bounded low-risk edits",
-        "compact": "compact approved plan, at most 80 lines, for coupled or multi-session changes",
-        "governed": "governed specification and risk record before implementation",
+        "compact": (
+            "compact approved plan, at most 80 lines, for coupled or multi-session "
+            "changes; ensures at least the Standard surface and a docs/plans directory"
+        ),
+        "governed": (
+            "governed specification and risk record before implementation; promotes "
+            "the Governed surface, while Spec Kit can own the plan artifacts"
+        ),
     },
     "validation_tier": {
         "none": "no code tests for research/docs; use only the smallest applicable diagnostic",
@@ -65,23 +86,83 @@ _POLICY_DESCRIPTIONS = {
     },
     "documentation_tier": {
         "changed-only": "update only user-facing or operational documentation changed by the task",
-        "handoff": "keep a concise current-state handoff for work that spans sessions",
-        "full": "maintain governed handoff, recovery, and operator evidence without copied command output",
+        "handoff": (
+            "keep a concise current-state handoff for work that spans sessions; "
+            "ensures at least the Standard surface"
+        ),
+        "full": (
+            "maintain governed handoff, recovery, and operator evidence without copied "
+            "command output; promotes the Governed surface"
+        ),
     },
     "memory_policy": {
         "off": "do not call project memory when history is explicitly irrelevant",
         "on-demand": "use the canonical project wing only when prior decisions or session history matter",
-        "required": "use project-scoped retrieval and an explicit-wing checkpoint for substantial work",
+        "required": (
+            "use project-scoped retrieval and an explicit-wing checkpoint for "
+            "substantial work; promotes the Governed surface"
+        ),
     },
     "code_intelligence_policy": {
         "off": "use live files and language/text search for the bounded task",
         "on-demand": "use available graph tools when architecture, callers, impact, or reuse discovery matters",
-        "required": "verify the available graph surface and use it for architecture and impact before editing",
+        "required": (
+            "verify the available graph surface and use it for architecture and impact "
+            "before editing; promotes the Governed surface"
+        ),
     },
     "review_tier": {
         "self": "self-review the final diff and relevant evidence; do not manufacture findings",
-        "independent": "independent read-only review is required before completion or release",
+        "independent": (
+            "independent read-only review is required before completion or release; "
+            "promotes the Governed surface"
+        ),
     },
+    "protocol_guard": {
+        "off": (
+            "do not install the optional workflow guard; hard path, secret, preview, "
+            "collision, and transactional safeguards remain active"
+        ),
+        "on": (
+            "install the reviewed local guard that checks handoff, plan, and "
+            "change-isolation facts; promotes the Governed surface but cannot prove "
+            "external memory, review, or test success"
+        ),
+    },
+}
+_POLICY_DIMENSION_GUIDANCE = {
+    "installation_surface": (
+        "Controls the generated workflow-file bundle. This is a floor, not an "
+        "absolute cap: stronger choices in other dimensions can promote it."
+    ),
+    "plan_tier": (
+        "Controls whether work needs no plan, a small inline plan, a compact persisted "
+        "plan, or a governed specification."
+    ),
+    "validation_tier": (
+        "Controls the expected verification scope. It does not install a test runner "
+        "or weaken hard safety checks."
+    ),
+    "documentation_tier": (
+        "Controls ongoing documentation and handoff obligations, not whether directly "
+        "affected user-facing documentation may be skipped."
+    ),
+    "memory_policy": (
+        "Controls MemPalace invocation. The project wing remains configured even when "
+        "memory use is off."
+    ),
+    "code_intelligence_policy": (
+        "Controls codebase-memory usage. The project identity remains configured and "
+        "live files remain authoritative."
+    ),
+    "review_tier": (
+        "Controls who must review completed work. It does not authorize overwriting "
+        "conflicting project files."
+    ),
+    "protocol_guard": (
+        "Controls the optional local workflow hook. It never replaces human review or "
+        "the configurator's permanent safety boundaries."
+    ),
 }
 
 
@@ -98,6 +179,61 @@ def policy_override_strength(
     if ranks[override_value] > ranks[derived_value]:
         return "stronger"
     return "equal"
+
+
+def policy_override_catalog() -> dict[str, dict[str, object]]:
+    """Return the complete user-facing override reference in stable order."""
+
+    return {
+        dimension: {
+            "label": dimension.replace("_", " ").title(),
+            "summary": _POLICY_DIMENSION_GUIDANCE[dimension],
+            "options": {
+                value: _POLICY_DESCRIPTIONS[dimension][value]
+                for value in values
+            },
+        }
+        for dimension, values in POLICY_DIMENSION_VALUES.items()
+    }
+
+
+def render_policy_override_guide() -> str:
+    """Render the authoritative override catalog as in-app Markdown."""
+
+    lines = [
+        "## Advanced override reference",
+        "",
+        "`auto` removes the explicit override and uses the value derived from "
+        "complexity, project size, testing level, rigor, selected integrations, "
+        "and security hooks.",
+        "",
+        "Options are ordered from lighter to stronger. A stronger choice increases "
+        "process or generated workflow surface. A weaker choice requires a rationale "
+        "and confirmation before Apply. Overrides never disable path, secret, sandbox, "
+        "destructive-operation, preview, collision, overwrite, deletion, or "
+        "transactional safeguards.",
+        "",
+    ]
+    for dimension, metadata in policy_override_catalog().items():
+        options = metadata["options"]
+        if not isinstance(options, dict):
+            raise ConfigError(f"override catalog options are invalid for {dimension}")
+        lines.extend(
+            [
+                f"### {metadata['label']} (`{dimension}`)",
+                "",
+                str(metadata["summary"]),
+                "",
+                "| Option | Behavior |",
+                "|---|---|",
+                *[
+                    f"| `{value}` | {description} |"
+                    for value, description in options.items()
+                ],
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _base_policy_values(config: Any) -> dict[str, str]:
@@ -258,7 +394,9 @@ __all__ = [
     "EngineeringPolicy",
     "POLICY_OVERRIDE_FIELDS",
     "derive_policy",
+    "policy_override_catalog",
     "policy_override_details",
     "policy_override_strength",
+    "render_policy_override_guide",
     "rigor_presets",
 ]

@@ -13,9 +13,12 @@ from unittest import mock
 from workflow_configurator import core
 from workflow_configurator.gui import (
     ConfiguratorController,
+    USER_GUIDE,
     WorkflowConfiguratorApp,
     apply_blockers,
     diff_line_kind,
+    format_context_footprint,
+    format_continuity_health,
     format_report,
     format_project_overview,
     format_restore_instructions,
@@ -125,6 +128,34 @@ class ConfigModelTests(unittest.TestCase):
                     "policy_overrides": {"require_approval": False},
                 }
             )
+
+    def test_override_catalog_covers_every_dimension_and_guide(self) -> None:
+        catalog = core.policy_override_catalog()
+        self.assertEqual(
+            list(core.POLICY_DIMENSION_VALUES),
+            list(catalog),
+        )
+        rendered = core.render_policy_override_guide()
+        documentation = (
+            ROOT / "docs" / "CONFIGURATOR.md"
+        ).read_text(encoding="utf-8").lower()
+        self.assertIn("`auto` removes the explicit override", rendered)
+        self.assertIn("permanent safety boundaries", USER_GUIDE)
+        for dimension, values in core.POLICY_DIMENSION_VALUES.items():
+            metadata = catalog[dimension]
+            self.assertTrue(str(metadata["summary"]).strip())
+            options = metadata["options"]
+            self.assertEqual(list(values), list(options))
+            self.assertIn(f"`{dimension}`", rendered)
+            for value in values:
+                description = str(options[value])
+                self.assertGreater(len(description), 20)
+                self.assertIn(f"| `{value}` | {description} |", rendered)
+                self.assertIn(description[:45].lower(), documentation)
+        self.assertIn(
+            core.render_policy_override_guide().strip(),
+            USER_GUIDE,
+        )
 
     def test_v1_migration_is_conservative_and_exports_v2(self) -> None:
         migrated = core.WorkflowConfig.from_dict(
@@ -381,6 +412,64 @@ class ConfigModelTests(unittest.TestCase):
             health = core.codebase_memory_health(config, "/expected/project")
         self.assertEqual("identity-mismatch", health["status"])
         self.assertEqual("/expected/project", health["expected_root"])
+
+    def test_continuity_summary_respects_adaptive_policy(self) -> None:
+        unavailable = {
+            "mempalace": {"status": "unavailable"},
+            "codebase_memory": {"status": "identity-mismatch"},
+        }
+        limited = core.continuity_summary(
+            core.WorkflowConfig(stack_profiles=()),
+            unavailable,
+        )
+        self.assertEqual("limited", limited["status"])
+        self.assertEqual(
+            "on-demand",
+            limited["services"]["mempalace"]["policy"],
+        )
+
+        required_config = core.WorkflowConfig(
+            rigor_preset="strong",
+            stack_profiles=(),
+        )
+        degraded = core.continuity_summary(required_config, unavailable)
+        self.assertEqual("degraded", degraded["status"])
+        self.assertIn("required", degraded["summary"].lower())
+
+        ready = core.continuity_summary(
+            required_config,
+            {
+                "mempalace": {
+                    "status": "healthy",
+                    "wing_present": True,
+                    "writer": {"status": "writable"},
+                },
+                "codebase_memory": {"status": "current"},
+            },
+        )
+        self.assertEqual("ready", ready["status"])
+
+        disabled_config = core.WorkflowConfig(
+            stack_profiles=(),
+            policy_overrides={
+                "memory_policy": {
+                    "value": "off",
+                    "reason": "History is irrelevant to this bounded task",
+                },
+                "code_intelligence_policy": {
+                    "value": "off",
+                    "reason": "Only supplied known files are in scope",
+                },
+            },
+        )
+        disabled = core.continuity_summary(disabled_config, unavailable)
+        self.assertEqual("disabled", disabled["status"])
+        rendered = format_continuity_health(
+            {**unavailable, "continuity": degraded}
+        )
+        self.assertIn("Continuity: DEGRADED", rendered)
+        self.assertIn("policy=required", rendered)
+        self.assertIn("Technical details", rendered)
 
     def test_dry_run_and_export_never_create_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -660,6 +749,78 @@ class ProjectLifecycleTests(unittest.TestCase):
                     item["path"] == "src/outside.py"
                     for item in metrics["large_python_functions"]
                 )
+            )
+
+    def test_context_footprint_uses_safe_post_apply_and_detects_duplicates(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "project"
+            (target / ".github").mkdir(parents=True)
+            (target / "docs" / "research").mkdir(parents=True)
+            repeated = (
+                "Use the current repository as authoritative evidence.\n"
+                "Verify historical context before relying on it in a decision.\n"
+            )
+            (target / "AGENTS.md").write_text(repeated, encoding="utf-8")
+            (target / ".github" / "copilot-instructions.md").write_text(
+                repeated,
+                encoding="utf-8",
+            )
+            (target / "docs" / "research" / "old.md").write_text(
+                "# Historical note\n\nThis is not current policy.\n",
+                encoding="utf-8",
+            )
+            report = core.analyze_project(
+                target,
+                core.WorkflowConfig(
+                    workflow="existing",
+                    project_name="project",
+                    stack_profiles=(),
+                    mcp_servers=("context7",),
+                    with_context_settings=False,
+                ),
+            )
+            footprint = report.facts["context_footprint"]
+            current = footprint["current"]
+            post = footprint["safe_post_apply"]
+            self.assertEqual(2, current["always_on"]["files"])
+            self.assertEqual(
+                current["always_on"]["bytes"],
+                post["always_on"]["bytes"],
+            )
+            self.assertEqual(0, current["mcp_servers"])
+            self.assertEqual(1, post["mcp_servers"])
+            self.assertEqual(1, footprint["searchable_history"]["files"])
+            self.assertEqual(
+                ["docs/research/old.md"],
+                footprint["searchable_history"]["paths"],
+            )
+            self.assertEqual(
+                1,
+                len(footprint["duplicate_blocks"]["current"]),
+            )
+            self.assertIn("not an exact token forecast", footprint["unit"])
+            rendered = format_context_footprint(footprint)
+            self.assertIn("Context footprint", rendered)
+            self.assertIn("Configured MCP servers: 0 -> 1", rendered)
+            self.assertIn("Duplicate instruction blocks: 1", rendered)
+            command = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    str(target),
+                    "--workflow",
+                    "existing",
+                    "--no-default-profiles",
+                    "--preview",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, command.returncode, command.stderr)
+            self.assertIn(
+                "Context footprint (deterministic proxy)",
+                command.stdout,
             )
 
     def test_restore_plan_can_select_latest_manifest_without_mutating_target(self) -> None:
@@ -1615,6 +1776,10 @@ class GuiControllerTests(unittest.TestCase):
             app.application.processEvents()
             self.assertTrue(app.apply_button.isEnabled())
             self.assertIn("Ready:", app.preview_label.text())
+            self.assertIn(
+                "Context footprint (deterministic proxy)",
+                app.overview_text.toPlainText(),
+            )
             self.assertEqual(2, app.action_tree.columnCount())
             review_sizes = app.review_splitter.sizes()
             self.assertGreaterEqual(review_sizes[0], 330)
@@ -1647,6 +1812,22 @@ class GuiControllerTests(unittest.TestCase):
             self.assertEqual("Reviewed; untouched", proposal_item.text(1))
             self.assertIn("1/", app.review_progress_label.text())
             self.assertTrue(app.apply_button.isEnabled())
+            health = {
+                "mempalace": {"status": "unavailable"},
+                "codebase_memory": {"status": "identity-mismatch"},
+            }
+            health["continuity"] = core.continuity_summary(config, health)
+            report = core.analyze_project(target, config)
+            report.facts["external_health"] = health
+            app._show_report(report)
+            self.assertIn(
+                "Continuity: LIMITED",
+                app.memory_health_text.toPlainText(),
+            )
+            self.assertIn(
+                "Technical details",
+                app.memory_health_text.toPlainText(),
+            )
             completed = subprocess.CompletedProcess(
                 args=[],
                 returncode=0,

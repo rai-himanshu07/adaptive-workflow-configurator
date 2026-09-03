@@ -658,6 +658,9 @@ def _print_report(report: configurator_core.AnalysisReport, *, as_json: bool) ->
     print("detected:")
     for key in ("manifests", "languages", "environment_managers"):
         print(f"  {key}: {json.dumps(report.facts.get(key, {}), sort_keys=True)}")
+    footprint = report.facts.get("context_footprint")
+    if isinstance(footprint, dict):
+        print(configurator_core.render_context_footprint(footprint), end="")
     print("actions:")
     for action in report.actions:
         print(f"  {action.status}: {action.path} — {action.reason}")

@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 try:
     from . import core
@@ -91,13 +91,17 @@ MemPalace 3.6 writable MCP sessions can hold the palace lock and block manual
 mining. A reviewed 3.8 shared writable hub is the recommended multi-session
 topology; this configurator diagnoses it but never upgrades or stops services.
 
+Analyze and Preview show a deterministic context-footprint proxy for current and
+safe-post-Apply workflow files. Memory & Code health summarizes continuity as
+ready, limited, degraded, or deliberately disabled according to active policy.
+
 ## Advanced Overrides
 
 Only workflow-process controls are overridable. Weaker values require a reason
 and confirmation. Path, secret, sandbox, destructive-operation, preview,
 collision, transactional, overwrite, deletion, and rollback protections are
 permanent.
-"""
+""" + "\n\n" + core.render_policy_override_guide()
 
 
 def preview_signature(target: Path | str, config: core.WorkflowConfig) -> str:
@@ -395,6 +399,20 @@ def format_project_overview(report: core.AnalysisReport) -> str:
                 f"{len(metrics.get('large_python_functions', []))}",
             ]
         )
+    footprint = facts.get("context_footprint")
+    if isinstance(footprint, Mapping):
+        lines.extend(["", format_context_footprint(footprint).rstrip()])
+    health = facts.get("external_health")
+    if isinstance(health, Mapping):
+        continuity = health.get("continuity")
+        if isinstance(continuity, Mapping):
+            lines.extend(
+                [
+                    "",
+                    f"Continuity: {str(continuity.get('status', 'unknown')).upper()}",
+                    str(continuity.get("summary", "")),
+                ]
+            )
     if report.recommendations:
         lines.extend(["", "Recommendations", *[f"- {item}" for item in report.recommendations]])
     mcp_security = facts.get("mcp_security", {})
@@ -435,6 +453,53 @@ def format_project_overview(report: core.AnalysisReport) -> str:
                 ],
             ]
         )
+    return "\n".join(lines) + "\n"
+
+
+def format_context_footprint(footprint: Mapping[str, Any]) -> str:
+    return core.render_context_footprint(footprint)
+
+
+def format_continuity_health(health: Mapping[str, Any]) -> str:
+    continuity = health.get("continuity", {})
+    continuity = continuity if isinstance(continuity, Mapping) else {}
+    services = continuity.get("services", {})
+    services = services if isinstance(services, Mapping) else {}
+    lines = [
+        f"Continuity: {str(continuity.get('status', 'unknown')).upper()}",
+        str(continuity.get("summary", "No continuity summary is available.")),
+        "",
+        "Services",
+        "--------",
+    ]
+    labels = {
+        "mempalace": "MemPalace",
+        "codebase_memory": "codebase-memory",
+    }
+    for name, label in labels.items():
+        service = services.get(name, {})
+        service = service if isinstance(service, Mapping) else {}
+        lines.append(
+            f"- {label}: policy={service.get('policy', 'unknown')}; "
+            f"state={service.get('state', 'unknown')}; "
+            f"identity={service.get('configured_identity', 'unknown')}"
+        )
+    effects = continuity.get("effects", [])
+    if isinstance(effects, list) and effects:
+        lines.extend(["", "Effect", "------", *[f"- {item}" for item in effects]])
+    technical = {
+        key: health[key]
+        for key in ("mempalace", "codebase_memory")
+        if key in health
+    }
+    lines.extend(
+        [
+            "",
+            "Technical details",
+            "-----------------",
+            json.dumps(technical, indent=2, sort_keys=True),
+        ]
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -811,7 +876,9 @@ class WorkflowConfiguratorApp:
         note = QW.QLabel(
             "Only workflow-process controls are shown. Path, secret, sandbox, "
             "destructive-operation, preview, collision, and transactional safety "
-            "cannot be overridden. A reason is required for every weaker value."
+            "cannot be overridden. A reason is required for every weaker value. "
+            "Hover a dimension or option for its behavior; the complete reference "
+            "is in Guide > Advanced override reference."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -823,6 +890,7 @@ class WorkflowConfiguratorApp:
         table.verticalHeader().setVisible(False)
         table.setAlternatingRowColors(True)
         controls: dict[str, tuple[Any, Any, Any, str]] = {}
+        catalog = core.policy_override_catalog()
 
         def refresh_effect(
             dimension: str,
@@ -838,6 +906,16 @@ class WorkflowConfiguratorApp:
                     dimension, derived_value, value
                 )
             )
+            option_descriptions = catalog[dimension]["options"]
+            if isinstance(option_descriptions, dict):
+                combo.setToolTip(
+                    str(
+                        option_descriptions.get(
+                            value,
+                            "Use the automatically derived value.",
+                        )
+                    )
+                )
 
         for row, (dimension, values) in enumerate(
             core.POLICY_DIMENSION_VALUES.items()
@@ -848,9 +926,24 @@ class WorkflowConfiguratorApp:
                 0,
                 QW.QTableWidgetItem(dimension.replace("_", " ").title()),
             )
+            dimension_item = table.item(row, 0)
+            dimension_item.setToolTip(str(catalog[dimension]["summary"]))
             table.setItem(row, 1, QW.QTableWidgetItem(derived_value))
             combo = QW.QComboBox()
             combo.addItems(["auto", *values])
+            combo.setItemData(
+                0,
+                "Use the automatically derived value and store no override.",
+                self.QtCore.Qt.ItemDataRole.ToolTipRole,
+            )
+            option_descriptions = catalog[dimension]["options"]
+            if isinstance(option_descriptions, dict):
+                for index, value in enumerate(values, start=1):
+                    combo.setItemData(
+                        index,
+                        str(option_descriptions[value]),
+                        self.QtCore.Qt.ItemDataRole.ToolTipRole,
+                    )
             decision = self.policy_overrides.get(dimension, {})
             selected = decision.get("value", "auto")
             combo.setCurrentText(selected if selected in values else "auto")
@@ -1738,9 +1831,9 @@ class WorkflowConfiguratorApp:
         self.overview_text.setPlainText(format_project_overview(report))
         self.full_report_text.setPlainText(format_report(report))
         health = report.facts.get("external_health")
-        if health:
+        if isinstance(health, Mapping):
             self.memory_health_text.setPlainText(
-                json.dumps(health, indent=2, sort_keys=True)
+                format_continuity_health(health)
             )
         self.action_tree.clear()
         self._actions = list(report.actions)
@@ -2452,7 +2545,7 @@ class WorkflowConfiguratorApp:
         )
         if result is not None:
             self.memory_health_text.setPlainText(
-                json.dumps(result, indent=2, sort_keys=True)
+                format_continuity_health(result)
             )
 
     def _export_restore_plan(self) -> None:

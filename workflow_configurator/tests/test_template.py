@@ -289,6 +289,10 @@ class TemplateStructureTests(unittest.TestCase):
             "MEMORY DEGRADED",
         ):
             self.assertIn(marker, memory)
+        self.assertNotIn("mandatory for this personal workflow", memory)
+        self.assertIn("mandatory only when the resolved memory policy", memory)
+        self.assertIn("used selectively", memory)
+        self.assertIn("policy is `off`", memory)
         for marker in (
             "Scout",
             "Verify",

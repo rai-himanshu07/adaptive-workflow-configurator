@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import os
 import re
@@ -41,6 +42,24 @@ WORKFLOW_DOC_NAMES = {
 }
 PLAN_BUDGETS = {"none": 0, "mini": 25, "compact": 80, "governed": 0}
 TASK_TIERS = {"0": "none", "1": "mini", "2": "compact", "3": "governed"}
+ALWAYS_ON_CONTEXT_PATHS = {
+    "AGENTS.md",
+    ".github/copilot-instructions.md",
+}
+ON_DEMAND_CONTEXT_PATHS = {
+    "docs/AGENT_CONTEXT.md",
+    "docs/AGENT_OBSERVABILITY.md",
+    "docs/AGENT_SURFACES.md",
+    "docs/CODE_INTELLIGENCE.md",
+    "docs/ENVIRONMENT_POLICY.md",
+    "docs/HANDOFF.md",
+    "docs/MCP_SECURITY.md",
+    "docs/MEMORY_PROTOCOL.md",
+    "docs/PLAN.template.md",
+    "docs/SECURITY_HOOKS.md",
+    "docs/WORKFLOW_CONFIG.md",
+    "docs/WORKFLOW_GUARD.md",
+}
 _SECRET_KEY = re.compile(
     r"(?i)(api[_-]?key|token|secret|password|credential|database[_-]?uri|db[_-]?url)"
 )
@@ -142,6 +161,247 @@ def _function_sizes(path: Path, text: str) -> list[dict[str, object]]:
                     }
                 )
     return result
+
+
+def _content_stats(files: Mapping[str, bytes]) -> dict[str, int]:
+    return {
+        "files": len(files),
+        "lines": sum(
+            len(content.decode("utf-8", errors="replace").splitlines())
+            for content in files.values()
+        ),
+        "bytes": sum(len(content) for content in files.values()),
+    }
+
+
+def _context_kind(path: str) -> str | None:
+    if path in ALWAYS_ON_CONTEXT_PATHS:
+        return "always_on"
+    if path.startswith(".github/instructions/") and path.endswith(
+        ".instructions.md"
+    ):
+        return "path_specific"
+    if (
+        path.startswith(".github/agents/")
+        or path.endswith("/SKILL.md")
+        or path in ON_DEMAND_CONTEXT_PATHS
+    ):
+        return "on_demand"
+    return None
+
+
+def _context_snapshot(files: Mapping[str, bytes]) -> dict[str, object]:
+    groups: dict[str, dict[str, bytes]] = {
+        "always_on": {},
+        "path_specific": {},
+        "on_demand": {},
+    }
+    for path, content in files.items():
+        kind = _context_kind(path)
+        if kind is not None:
+            groups[kind][path] = content
+    context_files = {
+        path: content
+        for group in groups.values()
+        for path, content in group.items()
+    }
+    return {
+        **{
+            name: {
+                **_content_stats(group),
+                "paths": sorted(group),
+            }
+            for name, group in groups.items()
+        },
+        "total": _content_stats(context_files),
+        "handoff": _content_stats(
+            {
+                path: content
+                for path, content in files.items()
+                if path == "docs/HANDOFF.md"
+            }
+        ),
+        "mcp_servers": _mcp_server_count(files.get(".vscode/mcp.json")),
+    }
+
+
+def _mcp_server_count(content: bytes | None) -> int:
+    if content is None:
+        return 0
+    try:
+        value = json.loads(content.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError):
+        return 0
+    servers = value.get("servers") if isinstance(value, Mapping) else None
+    return len(servers) if isinstance(servers, Mapping) else 0
+
+
+def _normalized_blocks(files: Mapping[str, bytes]) -> list[dict[str, object]]:
+    occurrences: dict[str, list[str]] = {}
+    previews: dict[str, str] = {}
+    for path, content in files.items():
+        if _context_kind(path) is None:
+            continue
+        text = content.decode("utf-8", errors="replace")
+        for block in re.split(r"\n\s*\n", text):
+            lines = [
+                re.sub(r"\s+", " ", line.strip())
+                for line in block.splitlines()
+                if line.strip()
+            ]
+            normalized = "\n".join(lines)
+            if len(lines) < 2 or len(normalized) < 80:
+                continue
+            digest = hashlib.sha256(normalized.encode()).hexdigest()
+            occurrences.setdefault(digest, []).append(path)
+            previews[digest] = normalized[:160]
+    duplicates = []
+    for digest, paths in occurrences.items():
+        unique_paths = sorted(set(paths))
+        if len(unique_paths) < 2:
+            continue
+        duplicates.append(
+            {
+                "sha256": digest,
+                "paths": unique_paths,
+                "preview": previews[digest],
+            }
+        )
+    return sorted(
+        duplicates,
+        key=lambda item: (-len(item["paths"]), str(item["preview"])),
+    )[:20]
+
+
+def _change(current: int, proposed: int) -> dict[str, object]:
+    delta = proposed - current
+    percent = round(delta / current * 100, 1) if current else None
+    return {
+        "current": current,
+        "safe_post_apply": proposed,
+        "delta": delta,
+        "percent": percent,
+    }
+
+
+def collect_context_footprint(
+    current_files: Mapping[str, bytes],
+    safe_post_apply_files: Mapping[str, bytes],
+    *,
+    active_plan: Mapping[str, object] | None = None,
+    searchable_history_files: Mapping[str, bytes] | None = None,
+) -> dict[str, object]:
+    """Return deterministic context proxies without claiming token equivalence."""
+
+    current = _context_snapshot(current_files)
+    post_apply = _context_snapshot(safe_post_apply_files)
+    current_always = current["always_on"]
+    post_always = post_apply["always_on"]
+    current_total = current["total"]
+    post_total = post_apply["total"]
+    assert isinstance(current_always, Mapping)
+    assert isinstance(post_always, Mapping)
+    assert isinstance(current_total, Mapping)
+    assert isinstance(post_total, Mapping)
+    history = dict(searchable_history_files or {})
+    return {
+        "unit": "UTF-8 bytes and physical lines; not an exact token forecast",
+        "current": current,
+        "safe_post_apply": post_apply,
+        "change": {
+            "always_on_bytes": _change(
+                int(current_always["bytes"]),
+                int(post_always["bytes"]),
+            ),
+            "total_context_bytes": _change(
+                int(current_total["bytes"]),
+                int(post_total["bytes"]),
+            ),
+            "mcp_servers": _change(
+                int(current["mcp_servers"]),
+                int(post_apply["mcp_servers"]),
+            ),
+        },
+        "active_plan": dict(active_plan or {}),
+        "searchable_history": {
+            **_content_stats(history),
+            "paths": sorted(history),
+        },
+        "duplicate_blocks": {
+            "current": _normalized_blocks(current_files),
+            "safe_post_apply": _normalized_blocks(safe_post_apply_files),
+        },
+    }
+
+
+def render_context_footprint(footprint: Mapping[str, object]) -> str:
+    current = footprint.get("current", {})
+    post = footprint.get("safe_post_apply", {})
+    current = current if isinstance(current, Mapping) else {}
+    post = post if isinstance(post, Mapping) else {}
+
+    def stats(snapshot: Mapping[str, object], name: str) -> Mapping[str, object]:
+        value = snapshot.get(name, {})
+        return value if isinstance(value, Mapping) else {}
+
+    def comparison(name: str, label: str) -> str:
+        before = stats(current, name)
+        after = stats(post, name)
+        return (
+            f"- {label}: "
+            f"{before.get('files', 0)} file(s), {before.get('lines', 0)} lines, "
+            f"{before.get('bytes', 0)} bytes -> "
+            f"{after.get('files', 0)} file(s), {after.get('lines', 0)} lines, "
+            f"{after.get('bytes', 0)} bytes"
+        )
+
+    history = footprint.get("searchable_history", {})
+    history = history if isinstance(history, Mapping) else {}
+    duplicates = footprint.get("duplicate_blocks", {})
+    duplicates = duplicates if isinstance(duplicates, Mapping) else {}
+    current_duplicates = duplicates.get("current", [])
+    post_duplicates = duplicates.get("safe_post_apply", [])
+    changes = footprint.get("change", {})
+    changes = changes if isinstance(changes, Mapping) else {}
+    always_change = changes.get("always_on_bytes", {})
+    always_change = (
+        always_change if isinstance(always_change, Mapping) else {}
+    )
+    active_plan = footprint.get("active_plan", {})
+    active_plan = active_plan if isinstance(active_plan, Mapping) else {}
+    lines = [
+        "Context footprint (deterministic proxy)",
+        comparison("always_on", "Always-on"),
+        (
+            f"- Always-on byte change: {always_change.get('delta', 0):+} "
+            f"({always_change.get('percent')}%)"
+            if always_change.get("percent") is not None
+            else f"- Always-on byte change: {always_change.get('delta', 0):+}"
+        ),
+        comparison("path_specific", "Path-specific"),
+        comparison("on_demand", "On-demand workflow"),
+        comparison("handoff", "Active handoff"),
+        (
+            f"- Configured MCP servers: {current.get('mcp_servers', 0)} -> "
+            f"{post.get('mcp_servers', 0)}"
+        ),
+        (
+            f"- Searchable history: {history.get('files', 0)} file(s), "
+            f"{history.get('lines', 0)} lines, {history.get('bytes', 0)} bytes"
+        ),
+        (
+            f"- Duplicate instruction blocks: "
+            f"{len(current_duplicates) if isinstance(current_duplicates, list) else 0} -> "
+            f"{len(post_duplicates) if isinstance(post_duplicates, list) else 0}"
+        ),
+    ]
+    if active_plan:
+        lines.append(
+            f"- Active plan: {active_plan.get('value') or 'none'}; "
+            f"{active_plan.get('lines') or 0} lines"
+        )
+    lines.append(f"- Unit: {footprint.get('unit', 'context proxy')}")
+    return "\n".join(lines) + "\n"
 
 
 def _mcp_finding(
@@ -656,7 +916,9 @@ def collect_project_metrics(
 
 __all__ = [
     "audit_mcp_configuration",
+    "collect_context_footprint",
     "collect_mcp_security",
     "collect_project_metrics",
+    "render_context_footprint",
     "vscode_user_mcp_paths",
 ]

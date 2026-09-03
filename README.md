@@ -15,6 +15,8 @@ safe merges. Existing user-owned files remain review-only proposals.
 - Explicit project proposal review and manual merge workflow
 - Review-gated Awesome Copilot metadata updates and selected-asset inspection
 - Redacted MCP configuration auditing
+- Current versus safe-post-Apply context-footprint proxies
+- Policy-aware MemPalace and code-graph continuity summaries
 - Project-scoped memory and code-intelligence guidance
 - User-level Linux and Windows launchers that require no administrator access
 - Cross-platform launcher contracts covered by the local test suite
@@ -76,6 +78,11 @@ Repository discovery supports recommendations and maintenance metrics but is not
 an Apply authorization boundary. Git projects use tracked plus non-ignored
 relevant files; non-Git projects use a bounded fallback scan. Every intended
 destination is validated independently.
+
+Analyze and Preview report UTF-8 bytes and physical lines for always-on,
+path-specific, and on-demand workflow context, plus MCP counts, handoff/plan
+size, searchable history, and exact duplicate instruction blocks. These are
+deterministic context proxies, not exact model-token forecasts.
 
 ## Documentation
 

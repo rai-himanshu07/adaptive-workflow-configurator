@@ -28,8 +28,10 @@ from typing import Any, Iterable, Mapping, Sequence
 from . import manifest as manifest_state
 from .analysis import (
     audit_mcp_configuration,
+    collect_context_footprint,
     collect_mcp_security,
     collect_project_metrics,
+    render_context_footprint,
 )
 from .apply import ApplyResult, apply_project
 from .catalog import (
@@ -64,8 +66,10 @@ from .policy import (
     POLICY_OVERRIDE_FIELDS,
     EngineeringPolicy,
     derive_policy,
+    policy_override_catalog,
     policy_override_details,
     policy_override_strength,
+    render_policy_override_guide,
     rigor_presets,
 )
 from .plugin_export import (
@@ -1019,14 +1023,118 @@ def codebase_memory_health(
     }
 
 
+def continuity_summary(
+    config: WorkflowConfig,
+    health: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Interpret continuity health according to the resolved adaptive policy."""
+
+    policy = derive_policy(config)
+    memory = health.get("mempalace", {})
+    code = health.get("codebase_memory", {})
+    memory = memory if isinstance(memory, Mapping) else {}
+    code = code if isinstance(code, Mapping) else {}
+
+    def memory_state() -> str:
+        if policy.memory_policy == "off":
+            return "disabled"
+        if memory.get("status") != "healthy":
+            return str(memory.get("status", "unavailable"))
+        if memory.get("wing_present") is not True:
+            return "identity-missing"
+        writer = memory.get("writer", {})
+        if isinstance(writer, Mapping) and writer.get("status") == "blocked":
+            return "write-blocked"
+        return "ready"
+
+    def code_state() -> str:
+        if policy.code_intelligence_policy == "off":
+            return "disabled"
+        status = str(code.get("status", "unavailable"))
+        return "ready" if status == "current" else status
+
+    services = {
+        "mempalace": {
+            "policy": policy.memory_policy,
+            "state": memory_state(),
+            "configured_identity": config.memory_wing,
+        },
+        "codebase_memory": {
+            "policy": policy.code_intelligence_policy,
+            "state": code_state(),
+            "configured_identity": config.codebase_project_id,
+        },
+    }
+    required_failures = [
+        name
+        for name, item in services.items()
+        if item["policy"] == "required" and item["state"] != "ready"
+    ]
+    optional_limitations = [
+        name
+        for name, item in services.items()
+        if item["policy"] == "on-demand" and item["state"] != "ready"
+    ]
+    enabled = [
+        item for item in services.values() if item["policy"] != "off"
+    ]
+    if required_failures:
+        status = "degraded"
+    elif optional_limitations:
+        status = "limited"
+    elif not enabled:
+        status = "disabled"
+    else:
+        status = "ready"
+
+    effects: list[str] = []
+    if "mempalace" in required_failures:
+        effects.append(
+            "Required historical continuity or durable checkpointing is incomplete."
+        )
+    elif "mempalace" in optional_limitations:
+        effects.append(
+            "Historical context may need reconstruction when the task requires it."
+        )
+    if "codebase_memory" in required_failures:
+        effects.append(
+            "Required structural retrieval or impact analysis is incomplete."
+        )
+    elif "codebase_memory" in optional_limitations:
+        effects.append(
+            "Structural retrieval may fall back to targeted live-file searches."
+        )
+    if status in {"degraded", "limited"}:
+        effects.append(
+            "Live repository inspection and safe configuration remain available."
+        )
+    if status == "disabled":
+        effects.append(
+            "Continuity services are deliberately disabled by the active policy."
+        )
+    return {
+        "status": status,
+        "summary": {
+            "ready": "Configured continuity services are ready.",
+            "limited": "Optional continuity is unavailable when requested.",
+            "degraded": "A continuity service required by policy is not ready.",
+            "disabled": "Continuity services are disabled by policy.",
+        }[status],
+        "services": services,
+        "effects": effects,
+    }
+
+
 def external_health(
     config: WorkflowConfig,
     target: Path | str | None = None,
 ) -> dict[str, Any]:
-    return {
+    health = {
         "mempalace": mempalace_health(config),
         "codebase_memory": codebase_memory_health(config, target),
     }
+    health["continuity"] = continuity_summary(config, health)
+    return health
 
 
 def selected_files(config: WorkflowConfig) -> list[str]:
@@ -1870,6 +1978,13 @@ def _detect_facts(
             or path.relative_to(target).as_posix() in {".mcp.json", ".github/mcp.json"}
         )
     )
+    searchable_history_files = sorted(
+        path.relative_to(target).as_posix()
+        for path in paths
+        if path.relative_to(target).as_posix().startswith(
+            (".goals/", "docs/research/")
+        )
+    )
 
     symlinks: list[str] = []
     non_regular: list[str] = []
@@ -1933,6 +2048,7 @@ def _detect_facts(
         },
         "customizations": customizations,
         "customization_files": customization_files,
+        "searchable_history_files": searchable_history_files,
         "known_template_files": existing_template_files,
         "partial_installations": partial,
         "apply_manifests_present": any(
@@ -1963,6 +2079,73 @@ def _detect_facts(
             scan_complete=not bool(scan_diagnostics),
         )
     return result
+
+
+def _read_context_file(target: Path, relative: str) -> bytes | None:
+    try:
+        path = _target_path(target, relative)
+        if not path.is_file() or path.stat().st_size > 1_000_000:
+            return None
+        return path.read_bytes()
+    except (OSError, SafetyError):
+        return None
+
+
+def _context_footprint(
+    target: Path,
+    facts: Mapping[str, Any],
+    intended_files: Mapping[str, bytes],
+    actions: Sequence[FileAction],
+) -> dict[str, object]:
+    candidates = {
+        str(path)
+        for path in facts.get("customization_files", [])
+        if isinstance(path, str)
+    }
+    candidates.update(
+        str(path)
+        for path in facts.get("known_template_files", [])
+        if isinstance(path, str)
+    )
+    candidates.update(intended_files)
+    candidates.update((".vscode/mcp.json", GUIDANCE_PATH))
+    current_files = {
+        relative: content
+        for relative in sorted(candidates)
+        if (content := _read_context_file(target, relative)) is not None
+    }
+    safe_post_apply_files = dict(current_files)
+    for action in actions:
+        if action.status not in {"missing", "safe_merge"}:
+            continue
+        content = action.intended_content
+        if content is not None:
+            safe_post_apply_files[action.path] = content.encode("utf-8")
+        elif action.path in intended_files:
+            safe_post_apply_files[action.path] = intended_files[action.path]
+
+    history_paths = [
+        str(path)
+        for path in facts.get("searchable_history_files", [])
+        if isinstance(path, str)
+    ]
+    history_files = {
+        relative: content
+        for relative in history_paths
+        if (content := _read_context_file(target, relative)) is not None
+    }
+    metrics = facts.get("workflow_metrics", {})
+    active_plan = (
+        metrics.get("active_plan", {})
+        if isinstance(metrics, Mapping)
+        else {}
+    )
+    return collect_context_footprint(
+        current_files,
+        safe_post_apply_files,
+        active_plan=active_plan if isinstance(active_plan, Mapping) else {},
+        searchable_history_files=history_files,
+    )
 
 
 def _source_root(source_root: Path | str | None) -> Path:
@@ -2420,6 +2603,12 @@ def analyze_project(
             recommendations.append("strong risk policy enabled the reviewed local protocol guard")
         if policy_requires_guard:
             recommendations.append("protocol guard checks only local handoff/plan/change-isolation facts; it cannot claim external memory success")
+    facts["context_footprint"] = _context_footprint(
+        target_path,
+        facts,
+        intended_files,
+        actions,
+    )
     recommendations = list(dict.fromkeys(recommendations))
     return AnalysisReport(
         target=str(target_path),
@@ -2854,6 +3043,7 @@ __all__ = [
     "build_mcp_config",
     "config_for_target",
     "config_json",
+    "continuity_summary",
     "derive_policy",
     "export_config",
     "export_local_plugin",
@@ -2867,10 +3057,13 @@ __all__ = [
     "preview_project",
     "preview_local_plugin",
     "preview",
+    "policy_override_catalog",
     "recommended_integrations",
     "render_asset_review",
+    "render_context_footprint",
     "render_guidance",
     "render_plugin_preview",
+    "render_policy_override_guide",
     "render_review_brief",
     "render_values",
     "render_upstream_report",
