@@ -54,16 +54,17 @@ smallest tool list, then inspect it with:
 
 ```bash
 copilot mcp list --json
-copilot plugins list --kind mcp --kind skill --json
+copilot plugin list
 ```
 
 ## Discovery Checks
 
-1. Run `/project-doctor --live` or the bundled doctor script with `--live`.
+1. Run `/project-doctor --live` or the bundled doctor script with `--live`
+  only when requested or required by the resolved validation policy.
 2. In VS Code, open **Chat: Open Customizations** and inspect each surface.
 3. Open **Developer: Open Agent Debug Panel** to see loaded files and failures.
 4. In Copilot CLI, run `/env`; use `/agent`, `/skills`, and `/hooks` for the
-   surfaces omitted from `copilot plugins list`.
+  surfaces omitted from `copilot plugin list`.
 5. In a monorepo opened below its Git root, enable
    `chat.useCustomizationsInParentRepositories` only after trusting the parent.
 

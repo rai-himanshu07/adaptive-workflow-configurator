@@ -23,8 +23,10 @@ state the limitation and narrow the claim instead of inventing certainty.
 For architecture, symbols, callers, call paths, routes, dependencies, and change
 impact:
 
-1. Skip graph work for a supplied known file, exact literal/configuration/error
-   lookup, trivial one-file check, or non-code text.
+1. When the policy requires code intelligence (the Velocity default), make one
+   bounded graph lookup at task start if available. For a supplied known file,
+   exact literal/configuration/error lookup, trivial one-file check, or
+   non-code text, stop there; under an on-demand policy, skip the graph entirely.
 2. Work with codebase-memory project `{{CODEBASE_PROJECT_ID}}`. Confirm it is
    indexed/current only when the active surface exposes a status operation.
 3. Use `get_architecture` for orientation, `search_graph` for symbols, and

@@ -6,7 +6,8 @@ disable-model-invocation: true
 
 # Resume Session
 
-1. Read `AGENTS.md`, `docs/WORKFLOW_CONFIG.md`, and `docs/HANDOFF.md`.
+1. Read `AGENTS.md` and `docs/HANDOFF.md`; open `docs/WORKFLOW_CONFIG.md`
+   only when a policy detail is needed.
 2. Follow the resolved `{{MEMORY_POLICY}}` policy. When history matters, call
    `mempalace_status`; if a required call fails, declare `MEMORY DEGRADED` and
    record the pending operation in the handoff.
@@ -21,7 +22,9 @@ disable-model-invocation: true
    history for the last relevant session before broad source exploration.
 5. Check current workspace state. If this is a Git repository, inspect status and
    recent commits without changing them.
-6. Run the configured fast test command when it is available:
+6. Run the configured fast test command only when the resolved validation
+   policy requires it or the user requests it. In manual mode, report it as
+   not run unless explicitly requested:
 
    ```text
    {{TEST_COMMAND}}

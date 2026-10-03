@@ -48,9 +48,11 @@ from .config_model import (
     DEFAULT_COMMANDS,
     DEFAULT_PROFILES,
     DEFAULT_SUMMARY,
+    LEGACY_DEFAULT_COMMANDS,
     POLICY_DIMENSION_VALUES,
     RIGOR_ALIASES,
     VALID_COMPLEXITIES,
+    VALID_EXECUTION_MODES,
     VALID_RIGOR_PRESETS,
     VALID_SESSION_PROFILES,
     VALID_SIZES,
@@ -115,6 +117,7 @@ BACKUPS_DIRECTORY = manifest_state.BACKUPS_DIRECTORY
 LEGACY_MANIFESTS_DIRECTORY = manifest_state.LEGACY_MANIFESTS_DIRECTORY
 LEGACY_BACKUPS_DIRECTORY = manifest_state.LEGACY_BACKUPS_DIRECTORY
 GUIDANCE_PATH = "docs/WORKFLOW_CONFIG.md"
+CURRENT_TASK_PATH = "docs/CURRENT_TASK.md"
 KNOWN_REQUIRED_DIRECTORIES = ("docs/plans",)
 _ACTIVE_OWNED_WRITES: contextvars.ContextVar[list[Path] | None] = (
     contextvars.ContextVar("workflow_configurator_active_owned_writes", default=None)
@@ -395,13 +398,24 @@ def guidance(config: WorkflowConfig, facts: Mapping[str, Any] | None = None) -> 
         policy.documentation_handoff,
         policy.review_requirements,
     ]
-    if config.testing_level == "none" and risk_score < 4:
+    if config.execution_mode == "velocity":
+        if policy.memory_policy == "required" and policy.code_intelligence_policy == "required":
+            steps.insert(
+                0,
+                "Retrieve concise project memory and a bounded code-graph view before "
+                "implementation; confirm behavior in live files.",
+            )
+        elif policy.memory_policy == "required":
+            steps.insert(0, "Retrieve concise project memory before implementation.")
+        elif policy.code_intelligence_policy == "required":
+            steps.insert(0, "Check a bounded code-graph view before implementation.")
+    elif policy.validation_tier != "manual" and config.testing_level == "none" and risk_score < 4:
         steps.insert(
             2,
             "For research, documentation, analysis, or configuration-only work, record "
             "the no-code-test reason and run only the smallest format/diagnostic check.",
         )
-    elif config.testing_level == "none":
+    elif policy.validation_tier != "manual" and config.testing_level == "none":
         steps.insert(
             2,
             "Testing was not selected, but this high-risk configuration still requires "
@@ -445,6 +459,9 @@ def render_guidance(config: WorkflowConfig, facts: Mapping[str, Any] | None = No
         f"- Project size/scope: `{config.project_size}`",
         f"- Testing level: `{config.testing_level}`",
         f"- Stack profiles: {', '.join(config.stack_profiles) or 'none'}",
+        f"- Other technologies: {config.technology_stack.strip() or 'inspect project manifests'}",
+        f"- Execution mode: `{config.execution_mode}`",
+        f"- Initial task: {'`' + CURRENT_TASK_PATH + '`' if config.task_details.strip() else 'none'}",
         f"- MCP choices: {', '.join(config.mcp_servers) or 'none'}",
         f"- Optional integration guidance: {', '.join(config.optional_integrations) or 'none'}",
         f"- Engineering rigor: `{config.rigor_preset}`",
@@ -492,7 +509,11 @@ def render_guidance(config: WorkflowConfig, facts: Mapping[str, Any] | None = No
             "",
             "## Installed file contract",
             "",
-            "The surface-aware project doctor treats only these generated paths as required:",
+            (
+                "These generated paths can be audited on request:"
+                if config.execution_mode == "velocity"
+                else "The surface-aware project doctor treats only these generated paths as required:"
+            ),
             "",
             *[f"- `{path}`" for path in selected_project_paths(config)],
         ]
@@ -579,6 +600,54 @@ def command_for_template(value: str) -> str:
 
 def _template_values(config: WorkflowConfig) -> dict[str, str]:
     policy = derive_policy(config)
+    velocity = config.execution_mode == "velocity"
+    manual_validation = policy.validation_tier == "manual"
+    required_context = tuple(
+        name
+        for name, enabled in (
+            ("one bounded project-memory lookup", policy.memory_policy == "required"),
+            ("one code-graph lookup", policy.code_intelligence_policy == "required"),
+        )
+        if enabled
+    )
+    task_intake = (
+        "- If chat has no concrete task, read `docs/CURRENT_TASK.md`; a new chat "
+        "request or explicitly named file takes precedence. Ask if still unclear."
+        if config.task_details.strip()
+        else "- If no task is supplied, ask for it; accept details in chat or a named file."
+    )
+    routing = (
+        (
+            (
+                "- Start with " + " and ".join(required_context)
+                + ", then implement the concrete task."
+                if required_context
+                else "- Implement the concrete task using live project sources."
+            ),
+            "- Follow the resolved plan tier; keep project doctor manual.",
+            (
+                "- Run review only on user request."
+                if policy.review_tier == "manual"
+                else "- " + policy.review_requirements + "."
+            ),
+            (
+                "- Explicitly selected hooks run automatically."
+                if config.with_security_hooks or policy.require_protocol_guard
+                else "- Optional hooks are not installed without explicit selection."
+            ),
+        )
+        if velocity
+        else (
+            "- Questions, research, docs, and trivial configuration need no plan artifact and no code tests.",
+            (
+                "- Bounded low-risk edits use an inline/mini plan; checks run only on user request."
+                if manual_validation
+                else "- Bounded low-risk edits use an inline/mini plan and the smallest affected check."
+            ),
+            "- Coupled or multi-session changes use a compact plan and concise handoff.",
+            "- Security, migration, regulated, or cross-service work uses the governed specification path selected in `docs/WORKFLOW_CONFIG.md`.",
+        )
+    )
     return {
         "{{PROJECT_NAME}}": config.project_name.strip(),
         "{{PROJECT_SUMMARY}}": config.summary.strip(),
@@ -594,6 +663,38 @@ def _template_values(config: WorkflowConfig) -> dict[str, str]:
         "{{MEMORY_POLICY}}": policy.memory_policy,
         "{{CODE_INTELLIGENCE_POLICY}}": policy.code_intelligence_policy,
         "{{REVIEW_TIER}}": policy.review_tier,
+        "{{STARTUP_FILES_RULE}}": (
+            "Read `AGENTS.md`; open `docs/WORKFLOW_CONFIG.md` only when a policy detail is needed."
+            if velocity
+            else "Read `AGENTS.md` and `docs/WORKFLOW_CONFIG.md`; do not duplicate their commands."
+        ),
+        "{{TECHNOLOGY_STACK}}": config.technology_stack.strip() or ", ".join(config.stack_profiles) or "inspect project manifests",
+        "{{VALIDATION_RULE}}": (
+            "- Run tests, lint, typecheck, and project doctor only when the user "
+            "requests them; state which checks were not run."
+            if manual_validation
+            else "- Run the smallest affected check after a coherent slice; broaden once at the configured checkpoint rather than after every edit."
+        ),
+        "{{TASK_ROUTING_RULES}}": "\n".join((*routing, task_intake)),
+        "{{COPILOT_VALIDATION_RULE}}": (
+            "- Tests, lint, typecheck, and project doctor are manual; report unrun "
+            "checks without claiming success."
+            if manual_validation
+            else "- Test changed behavior or a named risk with the smallest affected check after a coherent slice. Broaden only at the configured checkpoint."
+        ),
+        "{{CODE_INTELLIGENCE_RULE}}": (
+            "At task start, use " + " and ".join(required_context)
+            + "; verify against live files."
+            if velocity and required_context
+            else "Name only tools exposed in the active session and verify current behavior in live files. Skip it for known-file/literal lookups; use Scout for orientation, Verify for task claims, and Auditor only for bounded exhaustive/security claims."
+        ),
+        "{{EXECUTOR_VALIDATION_RULES}}": (
+            "5. Run tests, lint, and typecheck only on user request.\n"
+            "6. Follow the resolved review and guard policy; report checks not run."
+            if manual_validation
+            else "5. After a coherent implementation slice, run the smallest affected check. Fix failures caused by the change and rerun that check.\n"
+            "6. Run broader validation only at the configured checkpoint."
+        ),
     }
 
 
@@ -606,17 +707,18 @@ def render_values(source: Path, values: Mapping[str, str]) -> str:
         content = source.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
         raise ApplyError(f"cannot read template source {source}: {error}") from error
-    for token, value in values.items():
-        content = content.replace(token, value)
     unresolved = sorted(
         {
             "{{" + part.split("}}", 1)[0] + "}}"
             for part in content.split("{{")[1:]
             if "}}" in part
         }
+        - set(values)
     )
     if unresolved:
         raise ApplyError(f"unresolved template tokens in {source}: {', '.join(unresolved)}")
+    for token, value in values.items():
+        content = content.replace(token, value)
     return content
 
 
@@ -1146,8 +1248,10 @@ def selected_files(config: WorkflowConfig) -> list[str]:
     if (
         policy.plan_tier == "governed"
         or policy.documentation_tier == "full"
-        or policy.memory_policy == "required"
-        or policy.code_intelligence_policy == "required"
+        or (
+            config.execution_mode != "velocity"
+            and (policy.memory_policy == "required" or policy.code_intelligence_policy == "required")
+        )
         or policy.review_tier == "independent"
         or policy.protocol_guard == "on"
     ):
@@ -1164,6 +1268,8 @@ def selected_files(config: WorkflowConfig) -> list[str]:
         files.extend(PROFILE_FILES[profile])
     for capability in config.optional_integrations:
         files.extend(LOCAL_CAPABILITY_FILES.get(capability, ()))
+    if config.task_details.strip():
+        files.append(CURRENT_TASK_PATH)
     if config.with_security_hooks:
         files.extend(SECURITY_HOOK_FILES)
     if derive_policy(config).require_protocol_guard:
@@ -2168,6 +2274,9 @@ def _reject_template_target(target: Path, source: Path) -> None:
 def _intended_files(config: WorkflowConfig, source_root: Path) -> dict[str, bytes]:
     files: dict[str, bytes] = {}
     for relative in selected_files(config):
+        if relative == CURRENT_TASK_PATH:
+            files[relative] = ("# Current Task\n\n" + config.task_details.strip() + "\n").encode("utf-8")
+            continue
         source = source_root / relative
         if not source.is_file():
             raise ApplyError(f"template is incomplete; missing source file: {relative}")

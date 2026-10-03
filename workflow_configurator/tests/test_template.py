@@ -48,6 +48,13 @@ EXPECTED_TOKENS = {
     "{{MEMORY_POLICY}}",
     "{{CODE_INTELLIGENCE_POLICY}}",
     "{{REVIEW_TIER}}",
+    "{{TECHNOLOGY_STACK}}",
+    "{{VALIDATION_RULE}}",
+    "{{TASK_ROUTING_RULES}}",
+    "{{COPILOT_VALIDATION_RULE}}",
+    "{{CODE_INTELLIGENCE_RULE}}",
+    "{{EXECUTOR_VALIDATION_RULES}}",
+    "{{STARTUP_FILES_RULE}}",
 }
 CURRENT_TOOL_ALIASES = {"read", "search", "edit", "execute", "web", "agent", "todo"}
 

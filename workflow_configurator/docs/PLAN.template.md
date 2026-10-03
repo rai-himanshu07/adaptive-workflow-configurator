@@ -40,8 +40,10 @@ State the observable outcome.
 
 ## Final Verification
 
-- Run the configured project checks from `AGENTS.md`.
-- Confirm every acceptance criterion with current evidence.
+- Run checks only when the resolved validation policy requires them or the user
+  requests them; record unrun checks in Velocity mode.
+- Confirm acceptance criteria using evidence available at the selected tier;
+  disclose any criterion not yet verified.
 
 ## Blockers
 

@@ -1,9 +1,11 @@
-# GPT Agent Workflow Template
+# Workflow Configurator
 
 This is Himanshu's local-first GitHub Copilot workflow configurator for VS Code
 1.129 or newer. It derives minimal, standard, or governed project guidance from
 actual size, complexity, testing, rigor, and selected capabilities instead of
-imposing one workflow everywhere.
+imposing one workflow everywhere. New configurator projects default to
+implementation-first Velocity; Balanced is available when automatic task-tier
+checks and review are wanted.
 
 Requirements: Python 3.10 or newer for the CLI/core. The optional native UI
 uses PySide6. MemPalace and codebase-memory remain first-class optional
@@ -17,14 +19,14 @@ The installer:
 - replaces required project facts instead of leaving executable placeholders;
 - defaults to a three-file minimal surface and adds profiles/capabilities only
   when selected;
-- derives the project name from the target and supplies personal command
-  defaults while allowing explicit overrides;
+- derives the project name from the target; legacy installs keep personal Python
+  command defaults while new configurator projects start language-neutral;
 - keeps project-local MCP servers opt-in and sandboxes local servers;
 - never auto-installs external tools or deletes legacy workflow files.
 
 ## Install
 
-The normal personal install is deliberately short. Run a dry run first:
+The legacy personal install is deliberately short. Run a dry run first:
 
 ```bash
 python workflow_configurator/install.py ~/projects/my-project --dry-run
@@ -178,8 +180,9 @@ check:
 rg -n '\{\{[A-Z0-9_]+\}\}' AGENTS.md .github docs
 ```
 
-The command should return no matches. Run each configured project command once
-before relying on the executor workflow.
+The command should return no matches. In Balanced mode, run each configured
+project command once before relying on the executor workflow; in Velocity,
+run validation only when you request it.
 
 Read only the protocol documents actually installed by the selected surface.
 
@@ -189,6 +192,29 @@ The installer provides a standard-library-first core split into typed config,
 policy, catalog, analysis, Apply, recovery, upstream metadata, and local plugin
 export responsibilities. `install.py` and optional PySide6 `gui.py` are
 adapters; core/CLI use does not require Qt.
+
+New configurator configs start without Python-specific test, lint, or typecheck
+commands. Select any combination of the small bundled profiles and add other
+technologies as free text; set commands explicitly for a mixed-language project.
+The default `velocity` mode keeps brief
+project-memory and code-graph lookups but makes plans, tests, doctor, reviews,
+and optional hooks manual while preserving hard safety boundaries. Add an
+initial task only when useful; it becomes `docs/CURRENT_TASK.md` after explicit
+Apply, and a new chat task takes precedence. Choose `balanced` for automatic
+task-tier checks and review. Older imported configs without an execution mode,
+and the legacy installer, retain Balanced behavior.
+
+```bash
+python workflow_configurator/install.py ../existing-project \
+  --workflow existing --profile python --profile react \
+  --technology-stack "Rust, React, Python" \
+  --task-details "Implement the requested API" \
+  --preview
+```
+
+An existing task file is never overwritten; subsequent changes are proposals
+to merge manually. Task text also appears in config exports, previews, and Apply
+manifests, so do not include secrets.
 
 Configuration schema v2 includes complexity, scope, testing, stack profiles,
 MCPs, optional capabilities, commands, rigor, canonical memory/code identities,

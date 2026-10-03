@@ -10,6 +10,8 @@ safe merges. Existing user-owned files remain review-only proposals.
 ## Highlights
 
 - Adaptive minimal, standard, and governed workflow surfaces
+- Language-neutral commands with optional mixed-stack profiles and technology hints
+- Implementation-first Velocity by default for new configurations, with optional task intake
 - Native PySide6 desktop interface with readable, color-coded diffs
 - Preview-gated additive Apply with no automatic overwrite or deletion
 - Explicit project proposal review and manual merge workflow

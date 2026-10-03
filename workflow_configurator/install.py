@@ -34,10 +34,10 @@ PROTOCOL_GUARD_FILES = configurator_core.PROTOCOL_GUARD_FILES
 CONTEXT_SETTINGS_FILES = configurator_core.CONTEXT_SETTINGS_FILES
 DEFAULT_PROFILES = configurator_core.DEFAULT_PROFILES
 DEFAULT_SUMMARY = configurator_core.DEFAULT_SUMMARY
-DEFAULT_TEST_COMMAND = configurator_core.DEFAULT_COMMANDS["test"]
-DEFAULT_LINT_COMMAND = configurator_core.DEFAULT_COMMANDS["lint"]
-DEFAULT_TYPECHECK_COMMAND = configurator_core.DEFAULT_COMMANDS["typecheck"]
-DEFAULT_RUN_COMMAND = configurator_core.DEFAULT_COMMANDS["run"]
+DEFAULT_TEST_COMMAND = configurator_core.LEGACY_DEFAULT_COMMANDS["test"]
+DEFAULT_LINT_COMMAND = configurator_core.LEGACY_DEFAULT_COMMANDS["lint"]
+DEFAULT_TYPECHECK_COMMAND = configurator_core.LEGACY_DEFAULT_COMMANDS["typecheck"]
+DEFAULT_RUN_COMMAND = configurator_core.LEGACY_DEFAULT_COMMANDS["run"]
 GITIGNORE_ARTIFACT_BLOCK = configurator_core.GITIGNORE_ARTIFACT_BLOCK
 LOCAL_MCP_NAMES = configurator_core.LOCAL_MCP_NAMES
 MCP_SERVERS = {
@@ -65,17 +65,30 @@ def parse_args() -> argparse.Namespace:
         choices=configurator_core.VALID_SESSION_PROFILES,
         help="task-scoped tool enable/disable guidance",
     )
+    parser.add_argument(
+        "--technology-stack",
+        help="free-text technologies alongside any selected stack profiles (for example, Rust + React)",
+    )
+    parser.add_argument(
+        "--execution-mode",
+        choices=configurator_core.VALID_EXECUTION_MODES,
+        help="balanced process or implementation-first velocity with manual checks and review",
+    )
+    parser.add_argument(
+        "--task-details",
+        help="optional initial task written to docs/CURRENT_TASK.md only on explicit Apply",
+    )
     parser.add_argument("--summary", default=DEFAULT_SUMMARY)
-    parser.add_argument("--test-command", default=DEFAULT_TEST_COMMAND)
-    parser.add_argument("--lint-command", default=DEFAULT_LINT_COMMAND)
-    parser.add_argument("--typecheck-command", default=DEFAULT_TYPECHECK_COMMAND)
-    parser.add_argument("--run-command", default=DEFAULT_RUN_COMMAND)
+    parser.add_argument("--test-command")
+    parser.add_argument("--lint-command")
+    parser.add_argument("--typecheck-command")
+    parser.add_argument("--run-command")
     parser.add_argument(
         "--profile",
         action="append",
         choices=sorted(PROFILE_FILES),
         default=[],
-        help="add a stack profile to the default Python/DS profiles; repeat as needed",
+        help="add an optional stack profile; repeat as needed",
     )
     parser.add_argument(
         "--no-default-profiles",
@@ -291,6 +304,7 @@ def selected_files(
     )
     config = configurator_core.WorkflowConfig(
         stack_profiles=tuple(dict.fromkeys(profiles)),
+        execution_mode="balanced",
         with_security_hooks=with_security_hooks,
         with_context_settings=with_context_settings,
         policy_overrides=overrides,
@@ -359,6 +373,7 @@ def _legacy_main(args: argparse.Namespace) -> int:
             project_name=project_name,
             summary=defaults["summary"],
             workflow="new",
+            execution_mode="balanced",
             stack_profiles=tuple(dict.fromkeys(profiles)),
             mcp_servers=tuple(dict.fromkeys(args.mcp or [])),
             optional_integrations=tuple(dict.fromkeys(args.integration or [])),
@@ -518,6 +533,12 @@ def _config_from_args(args: argparse.Namespace) -> configurator_core.WorkflowCon
             values["codebase_project_id"] = args.codebase_project_id
         if args.session_profile is not None:
             values["session_profile"] = args.session_profile
+        if args.technology_stack is not None:
+            values["technology_stack"] = args.technology_stack
+        if args.execution_mode is not None:
+            values["execution_mode"] = args.execution_mode
+        if args.task_details is not None:
+            values["task_details"] = args.task_details
         if args.workflow is not None:
             values["workflow"] = args.workflow
         if args.complexity is not None:
@@ -532,13 +553,13 @@ def _config_from_args(args: argparse.Namespace) -> configurator_core.WorkflowCon
             commands = dict(config.commands)
             commands.update(_parse_key_values(args.command, "--command"))
             values["commands"] = commands
-        for name, value, default in (
-            ("test", args.test_command, DEFAULT_TEST_COMMAND),
-            ("lint", args.lint_command, DEFAULT_LINT_COMMAND),
-            ("typecheck", args.typecheck_command, DEFAULT_TYPECHECK_COMMAND),
-            ("run", args.run_command, DEFAULT_RUN_COMMAND),
+        for name, value in (
+            ("test", args.test_command),
+            ("lint", args.lint_command),
+            ("typecheck", args.typecheck_command),
+            ("run", args.run_command),
         ):
-            if value != default:
+            if value is not None:
                 commands = dict(values.get("commands", config.commands))
                 commands[name] = value
                 values["commands"] = commands
@@ -598,10 +619,10 @@ def _config_from_args(args: argparse.Namespace) -> configurator_core.WorkflowCon
         profiles = list(DEFAULT_PROFILES)
         profiles.extend(args.profile or [])
     commands = {
-        "test": args.test_command or DEFAULT_TEST_COMMAND,
-        "lint": args.lint_command or DEFAULT_LINT_COMMAND,
-        "typecheck": args.typecheck_command or DEFAULT_TYPECHECK_COMMAND,
-        "run": args.run_command or DEFAULT_RUN_COMMAND,
+        "test": args.test_command or configurator_core.DEFAULT_COMMANDS["test"],
+        "lint": args.lint_command or configurator_core.DEFAULT_COMMANDS["lint"],
+        "typecheck": args.typecheck_command or configurator_core.DEFAULT_COMMANDS["typecheck"],
+        "run": args.run_command or configurator_core.DEFAULT_COMMANDS["run"],
     }
     commands.update(_parse_key_values(args.command, "--command"))
     override_values = list(args.override)
@@ -622,12 +643,15 @@ def _config_from_args(args: argparse.Namespace) -> configurator_core.WorkflowCon
         project_size=args.project_size or "small",
         testing_level=args.testing_level or "focused",
         stack_profiles=tuple(dict.fromkeys(profiles)),
+        technology_stack=args.technology_stack or "",
         mcp_servers=tuple(dict.fromkeys(args.mcp or [])),
         optional_integrations=tuple(dict.fromkeys(args.integration or [])),
         commands=commands,
         rigor_preset=configurator_core.RIGOR_ALIASES.get(
             (args.rigor_preset or "standard").lower(), args.rigor_preset or "standard"
         ),
+        execution_mode=args.execution_mode or "velocity",
+        task_details=args.task_details or "",
         policy_overrides=overrides,
         memory_wing=(
             args.memory_wing
@@ -806,6 +830,9 @@ def _uses_configurator_mode(args: argparse.Namespace) -> bool:
             args.memory_wing is not None,
             args.codebase_project_id is not None,
             args.session_profile is not None,
+            args.technology_stack is not None,
+            args.execution_mode is not None,
+            args.task_details is not None,
             bool(args.command),
             bool(args.policy_override),
             bool(args.override),

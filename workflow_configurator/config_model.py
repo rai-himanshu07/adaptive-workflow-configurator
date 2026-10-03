@@ -19,6 +19,12 @@ LEGACY_DEFAULT_SUMMARY = (
     "Personal Python and data-science project using Himanshu's agent workflow."
 )
 DEFAULT_COMMANDS = {
+    "test": "none",
+    "lint": "none",
+    "typecheck": "none",
+    "run": "none",
+}
+LEGACY_DEFAULT_COMMANDS = {
     "test": "pytest -x -q",
     "lint": "ruff check .",
     "typecheck": "pyright",
@@ -29,6 +35,7 @@ VALID_SIZES = ("small", "medium", "large")
 VALID_TESTING_LEVELS = ("none", "focused", "broad")
 VALID_WORKFLOWS = ("new", "existing")
 VALID_RIGOR_PRESETS = ("light", "standard", "strong")
+VALID_EXECUTION_MODES = ("balanced", "velocity")
 VALID_SESSION_PROFILES = (
     "auto",
     "quick-docs",
@@ -43,11 +50,11 @@ VALID_SESSION_PROFILES = (
 POLICY_DIMENSION_VALUES: dict[str, tuple[str, ...]] = {
     "installation_surface": ("minimal", "standard", "governed"),
     "plan_tier": ("none", "mini", "compact", "governed"),
-    "validation_tier": ("none", "focused", "broad"),
+    "validation_tier": ("manual", "none", "focused", "broad"),
     "documentation_tier": ("changed-only", "handoff", "full"),
     "memory_policy": ("off", "on-demand", "required"),
     "code_intelligence_policy": ("off", "on-demand", "required"),
-    "review_tier": ("self", "independent"),
+    "review_tier": ("manual", "self", "independent"),
     "protocol_guard": ("off", "on"),
 }
 RIGOR_ALIASES = {
@@ -183,10 +190,13 @@ class WorkflowConfig:
     project_size: str = "small"
     testing_level: str = "focused"
     stack_profiles: tuple[str, ...] = DEFAULT_PROFILES
+    technology_stack: str = ""
     mcp_servers: tuple[str, ...] = ()
     optional_integrations: tuple[str, ...] = ()
     commands: Mapping[str, str] = field(default_factory=lambda: dict(DEFAULT_COMMANDS))
     rigor_preset: str = "standard"
+    execution_mode: str = "velocity"
+    task_details: str = ""
     policy_overrides: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
     memory_wing: str = ""
     codebase_project_id: str = ""
@@ -253,10 +263,13 @@ class WorkflowConfig:
             "project_size": self.project_size,
             "testing_level": self.testing_level,
             "stack_profiles": list(self.stack_profiles),
+            "technology_stack": self.technology_stack,
             "mcp_servers": list(self.mcp_servers),
             "optional_integrations": list(self.optional_integrations),
             "commands": {name: self.commands[name] for name in sorted(self.commands)},
             "rigor_preset": self.rigor_preset,
+            "execution_mode": self.execution_mode,
+            "task_details": self.task_details,
             "policy_overrides": {
                 name: dict(self.policy_overrides[name])
                 for name in sorted(self.policy_overrides)
@@ -288,6 +301,7 @@ class WorkflowConfig:
             "testing",
             "stack_profiles",
             "profiles",
+            "technology_stack",
             "mcp_servers",
             "mcp",
             "mcp_choices",
@@ -298,6 +312,8 @@ class WorkflowConfig:
             "rigor_preset",
             "rigor",
             "engineering_rigor",
+            "execution_mode",
+            "task_details",
             "policy_overrides",
             "memory_wing",
             "codebase_project_id",
@@ -334,7 +350,10 @@ class WorkflowConfig:
                     )
             return raw[present[0]] if present else default
 
-        commands_raw = choose("commands", ("command_overrides",), DEFAULT_COMMANDS)
+        default_commands = (
+            LEGACY_DEFAULT_COMMANDS if version == LEGACY_CONFIG_VERSION else DEFAULT_COMMANDS
+        )
+        commands_raw = choose("commands", ("command_overrides",), default_commands)
         if not isinstance(commands_raw, Mapping):
             raise ConfigError("commands must be a JSON object")
         commands = {
@@ -348,7 +367,7 @@ class WorkflowConfig:
         if len(commands) != len(commands_raw):
             raise ConfigError("commands keys must be non-empty strings")
         for name in ("test", "lint", "typecheck", "run"):
-            commands.setdefault(name, DEFAULT_COMMANDS[name])
+            commands.setdefault(name, default_commands[name])
 
         overrides_raw = raw.get("policy_overrides", {})
         overrides = (
@@ -427,6 +446,9 @@ class WorkflowConfig:
                 choose("testing_level", ("testing",), "focused"), "testing_level"
             ).lower(),
             stack_profiles=profiles,
+            technology_stack=_require_string(
+                raw.get("technology_stack", ""), "technology_stack", allow_empty=True
+            ),
             mcp_servers=_unique_strings(
                 choose("mcp_servers", ("mcp", "mcp_choices"), []),
                 "mcp_servers",
@@ -435,6 +457,12 @@ class WorkflowConfig:
             optional_integrations=tuple(integrations),
             commands=commands,
             rigor_preset=rigor,
+            execution_mode=_require_string(
+                raw.get("execution_mode", "balanced"), "execution_mode"
+            ).lower(),
+            task_details=_require_string(
+                raw.get("task_details", ""), "task_details", allow_empty=True
+            ),
             policy_overrides={
                 str(name): dict(value) if isinstance(value, Mapping) else value
                 for name, value in overrides.items()
@@ -481,11 +509,18 @@ def validate_config(config: WorkflowConfig) -> None:
         ("project_size", config.project_size, VALID_SIZES),
         ("testing_level", config.testing_level, VALID_TESTING_LEVELS),
         ("rigor_preset", config.rigor_preset, VALID_RIGOR_PRESETS),
+        ("execution_mode", config.execution_mode, VALID_EXECUTION_MODES),
         ("session_profile", config.session_profile, VALID_SESSION_PROFILES),
     ):
         if value not in allowed:
             raise ConfigError(f"{name} must be one of: {', '.join(allowed)}")
     _unique_strings(config.stack_profiles, "stack_profiles", tuple(PROFILE_FILES))
+    if not isinstance(config.technology_stack, str) or any(
+        char in config.technology_stack for char in ("\r", "\n")
+    ):
+        raise ConfigError("technology_stack must be a single line of text")
+    if not isinstance(config.task_details, str):
+        raise ConfigError("task_details must be a string")
     _unique_strings(config.mcp_servers, "mcp_servers", MCP_NAMES)
     _unique_strings(
         config.optional_integrations,
@@ -565,10 +600,12 @@ __all__ = [
     "DEFAULT_COMMANDS",
     "DEFAULT_PROFILES",
     "DEFAULT_SUMMARY",
+    "LEGACY_DEFAULT_COMMANDS",
     "LEGACY_CONFIG_VERSION",
     "POLICY_DIMENSION_VALUES",
     "RIGOR_ALIASES",
     "VALID_COMPLEXITIES",
+    "VALID_EXECUTION_MODES",
     "VALID_RIGOR_PRESETS",
     "VALID_SESSION_PROFILES",
     "VALID_SIZES",

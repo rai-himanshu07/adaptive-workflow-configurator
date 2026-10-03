@@ -7,8 +7,9 @@ disable-model-invocation: true
 
 # Plan Task
 
-Use the text following `/plan-task` as the task. If no task is supplied, ask for
-it. Do not implement the task.
+Use the text following `/plan-task` as the task. If none is supplied, use
+`docs/CURRENT_TASK.md` when present; otherwise ask for the task. Do not implement
+the task. This skill is user-invoked, not part of Velocity's default path.
 
 1. When required by the active memory policy, call `mempalace_status`, inspect
    relevant `/memories/repo/` notes, and read

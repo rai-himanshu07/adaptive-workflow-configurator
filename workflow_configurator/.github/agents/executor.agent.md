@@ -1,6 +1,6 @@
 ---
 name: Executor
-description: Implements an approved active plan step by step and validates each completed slice.
+description: Implements an approved active plan with validation set by project policy.
 model: ['GPT-5 mini (copilot)', 'Claude Haiku 4.5 (copilot)']
 tools: [read, search, edit, execute]
 agents: []
@@ -17,7 +17,8 @@ Implement only the approved bounded task or active plan.
 
 ## Protocol
 
-1. Read `AGENTS.md`, `docs/WORKFLOW_CONFIG.md`, and any installed handoff.
+1. Read `AGENTS.md` and any installed handoff; open `docs/WORKFLOW_CONFIG.md`
+   only when a policy detail is needed.
 2. Use MemPalace only according to `{{MEMORY_POLICY}}`, always with wing
    `{{MEMORY_WING}}`. Use codebase-memory only according to
    `{{CODE_INTELLIGENCE_POLICY}}` for project `{{CODEBASE_PROJECT_ID}}`, and
@@ -27,9 +28,7 @@ Implement only the approved bounded task or active plan.
    satisfy this agent.
 4. Work through unchecked steps in dependency order. Touch only files implied by
    the current step.
-5. After a coherent implementation slice, run the smallest affected check.
-   Fix failures caused by the change and rerun that check.
-6. Run broader validation only at the `{{VALIDATION_TIER}}` checkpoint.
+{{EXECUTOR_VALIDATION_RULES}}
 7. Update installed task state and project-wing memory only when required by the
    resolved policy.
 

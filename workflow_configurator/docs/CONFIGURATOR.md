@@ -18,8 +18,32 @@ installed automatically.
 ## Configuration v2
 
 Versioned JSON stores project identity, new/existing mode, complexity, size,
-testing, profiles, MCPs, optional capabilities, commands, rigor, canonical
-MemPalace/codebase-memory identities, session profile, and typed overrides.
+testing, profiles, free-text technologies, MCPs, optional capabilities, commands,
+rigor, execution mode, optional initial task, canonical MemPalace/codebase-memory
+identities, session profile, and typed overrides.
+
+New v2 configurations leave test, lint, typecheck, and run commands unconfigured.
+Choose multiple reviewed stack profiles when useful, and describe technologies
+without a bundled profile (such as Rust) in the free-text technology stack.
+Commands may combine tools from several languages. Legacy installs and v1
+config imports retain their Python command defaults.
+
+New projects default to `velocity`, which uses compact instructions
+and bounded project-memory/code-graph lookups, but plans, tests, lint, typechecks,
+project doctor, reviews, and optional hooks run only on explicit request. Hard
+path, secret, sandbox, preview, collision, and transaction protections remain.
+Explicit policy overrides may require checks or review again; selecting hooks
+installs them to run at their configured events.
+Choose `balanced` for the adaptive task-tier process with its automatic checks
+and review. Imported v1 or older v2 configurations without an execution-mode
+field retain Balanced rather than silently weakening their existing policy;
+the legacy installer also remains Balanced.
+
+An optional initial task is stored in `docs/CURRENT_TASK.md` only after Preview
+and explicit Apply. A new chat request or explicitly named file takes precedence;
+without a task, the agent asks instead of guessing. Existing task files become
+reviewable proposals, never automatic overwrites. Task text also appears in
+config exports, preview data, and Apply manifests; do not put secrets in it.
 
 Config v1 imports conservatively. Normal fields migrate; ambiguous free-form
 policy or unsafe approval weakening is rejected for manual review.
@@ -30,10 +54,10 @@ The core derives:
 
 - installation surface: minimal / standard / governed;
 - plan tier: none / mini / compact / governed;
-- validation: none / focused / broad;
+- validation: manual / none / focused / broad;
 - documentation: changed-only / handoff / full;
 - memory and code intelligence: off / on-demand / required;
-- review: self / independent;
+- review: manual / self / independent;
 - protocol guard: off / on.
 
 Default minimal output is only:
@@ -46,7 +70,9 @@ docs/WORKFLOW_CONFIG.md
 
 Standard adds compact agents, task state, context exclusions, and a
 surface-aware doctor. Governed adds selected specification, guard, and evidence
-surfaces. The data-science experiment runner is a separate optional capability.
+surfaces. Velocity keeps required memory and graph usage without promoting the
+file bundle by itself. The data-science experiment runner is a separate optional
+capability.
 
 ### Advanced Overrides
 
@@ -54,8 +80,9 @@ The native editor shows each derived value, selected value, and whether it is
 stronger, equal, or weaker. Weaker values require a reason and Apply
 confirmation.
 
-`auto` removes the explicit override and uses the value derived from complexity,
-project size, testing level, rigor, selected integrations, and security hooks.
+`auto` removes the explicit override and uses the value derived from execution
+mode, complexity, project size, testing level, rigor, selected integrations,
+and security hooks.
 Options below are ordered from lighter to stronger. Stronger plan,
 documentation, memory, code-intelligence, review, or guard choices can promote
 the effective generated file set even when the installation-surface override is
@@ -68,7 +95,7 @@ cap: stronger choices in other dimensions can promote it.
 
 | Option | Behavior |
 |---|---|
-| `minimal` | Install only compact always-on instructions and the generated workflow configuration; stronger plan, documentation, memory, code-intelligence, review, or guard choices can still promote the effective file set. |
+| `minimal` | Install only compact always-on instructions and the generated workflow configuration; stronger plan, documentation, memory, code-intelligence, review, or guard choices can still promote the effective file set (required memory and graph stay compact in velocity mode). |
 | `standard` | Add planner/executor/reviewer roles, compact handoff and resume skills, the project doctor, and context exclusions when enabled. |
 | `governed` | Add the Standard surface plus governed planning, memory, code-intelligence, environment, observability, MCP, and safety guidance. |
 
@@ -79,7 +106,7 @@ plan, or a governed specification.
 
 | Option | Behavior |
 |---|---|
-| `none` | No plan artifact for questions, research, docs, or trivial configuration. |
+| `none` | No plan artifact by default; start bounded implementation or ask when the task is unclear. |
 | `mini` | Inline or mini plan, at most 25 lines, for bounded low-risk edits. |
 | `compact` | Compact approved plan, at most 80 lines, for coupled or multi-session changes; ensures at least the Standard surface and a `docs/plans` directory. |
 | `governed` | Governed specification and risk record before implementation; promotes the Governed surface, while Spec Kit can own the plan artifacts. |
@@ -91,6 +118,7 @@ weakens permanent safety checks.
 
 | Option | Behavior |
 |---|---|
+| `manual` | Run tests, lint, typecheck, and project doctor only when the user requests them. |
 | `none` | No code tests for research/docs; use only the smallest applicable diagnostic. |
 | `focused` | Run the smallest affected check after a coherent implementation slice. |
 | `broad` | Run focused checks plus broad relevant tests or diagnostics at a logical checkpoint. |
@@ -115,7 +143,7 @@ even when memory use is off.
 |---|---|
 | `off` | Do not call project memory when history is explicitly irrelevant. |
 | `on-demand` | Use the canonical project wing only when prior decisions or session history matter. |
-| `required` | Use project-scoped retrieval and an explicit-wing checkpoint for substantial work; promotes the Governed surface. |
+| `required` | Use project-scoped retrieval and an explicit-wing checkpoint for substantial work; promotes the Governed surface except in velocity mode. |
 
 #### Code-intelligence policy
 
@@ -126,15 +154,16 @@ available and live files remain authoritative.
 |---|---|
 | `off` | Use live files and language/text search for the bounded task. |
 | `on-demand` | Use available graph tools when architecture, callers, impact, or reuse discovery matters. |
-| `required` | Verify the available graph surface and use it for architecture and impact before editing; promotes the Governed surface. |
+| `required` | Verify the available graph surface and use it for architecture and impact before editing; promotes the Governed surface except in velocity mode. |
 
 #### Review tier
 
-Controls who must review completed work. It never authorizes overwriting a
+Controls when review is expected. It never authorizes overwriting a
 conflicting project file.
 
 | Option | Behavior |
 |---|---|
+| `manual` | Run self-review or an independent reviewer only when the user requests it. |
 | `self` | Self-review the final diff and relevant evidence; do not manufacture findings. |
 | `independent` | Independent read-only review is required before completion or release; promotes the Governed surface. |
 

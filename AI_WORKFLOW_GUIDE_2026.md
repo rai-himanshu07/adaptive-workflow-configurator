@@ -1,4 +1,6 @@
-# AI-Assisted Development Workflow Guide — August 2026
+# AI-Assisted Development Workflow Guide — 2026
+
+**Updated:** 2026-10-04
 
 **Audience:** Developers and technical leads using GitHub Copilot, local development tools, and optional MCP services.
 
@@ -7,7 +9,8 @@ documentation project, or permanent tool dependency.
 
 **Companion tool:** [`workflow_configurator`](workflow_configurator/) implements this guidance through a native PySide6 Configurator
 with adaptive project surfaces, read-only analysis, preview-gated Apply, explicit memory/code identities, and
-manual recovery.
+manual recovery. New configurations default to implementation-first Velocity;
+Balanced is an explicit alternative for automatic task-tier checks and review.
 
 ---
 
@@ -18,9 +21,9 @@ manual recovery.
 3. **Start from live evidence.** Git, current files, language services, tests, and runtime output are authoritative.
 4. **Reuse before generating.** Find the existing helper, type, component, pattern, or dependency first.
 5. **Change the smallest maintainable surface.** Optimize for comprehension, not the lowest line count.
-6. **Validate proportionally.** Check a coherent slice; broaden once at a checkpoint or high-risk boundary.
+6. **Validate under the selected policy.** Balanced runs proportional checks; Velocity leaves them to user request.
 7. **Persist only durable value.** Active state belongs in a short handoff/spec; decisions belong in project memory.
-8. **Review the final artifact.** Unexpected files, APIs, dependencies, tests, or docs need justification.
+8. **Review under the selected policy.** Independent review is user-invoked in Velocity; hard safety remains.
 
 The goal is not maximum agent activity. It is the lowest total cost that produces correct, understandable,
 recoverable software.
@@ -71,6 +74,15 @@ artifacts, and maintenance work can increase total cost.
 
 # 2. Adaptive Workflow
 
+New Configurator projects start in **Velocity**: one bounded project-memory and
+code-graph lookup at task start, then implementation without automatic plans,
+tests, doctor, reviewer, or optional hooks. The user can request any of these;
+explicit stronger overrides may require them. Preview, collision, secret,
+sandbox, destructive-operation, and transaction safeguards always remain.
+Choose **Balanced** for the automatic task-tier process described below. Old
+imported configurations without an execution-mode field and the legacy
+installer remain Balanced to preserve existing behavior.
+
 ## 2.1 Task tiers
 
 | Tier | Typical work | Plan | Validation | Memory/code tools |
@@ -80,7 +92,8 @@ artifacts, and maintenance work can increase total cost.
 | **2** | Coupled behavior or multi-session change | Compact, ≤80 lines | Focused per coherent slice; broad at checkpoint | Targeted and project-scoped |
 | **3** | Security, migration, regulated, cross-service/team | Governed specification | Broad relevant evidence | Required where applicable |
 
-Tier is task-specific. A large repository can have a Tier 0 question; a small repository can have a Tier 3 auth change.
+These tiers govern Balanced mode. Tier is task-specific: a large repository can
+have a Tier 0 question; a small repository can have a Tier 3 auth change.
 
 ## 2.2 Project installation surfaces
 
@@ -285,7 +298,8 @@ of stale/duplicated cases. Affected-test tooling is optional; retain a broader c
 5. Resolve ownership questions.
 6. Apply only missing files and narrowly documented additive merges.
 7. Leave conflicting user-owned content untouched.
-8. Run the surface-aware project doctor and relevant project checks.
+8. In Balanced mode, run the surface-aware project doctor and relevant project
+  checks; in Velocity, do so only on user request.
 9. Use passive manifests/backups for manual recovery.
 
 Old generated files are never deleted automatically.
@@ -308,6 +322,11 @@ python workflow_configurator/install.py /path/to/project \
 
 Launch the native UI with `./launch-workflow-configurator.sh`, or install its application-menu entry once with
 `./install-workflow-configurator-launcher.sh`.
+New CLI/GUI configurations default to Velocity and leave commands unconfigured;
+set project-specific commands, select stack profiles, and describe any other
+technologies as needed. The optional initial task becomes `docs/CURRENT_TASK.md`
+on explicit Apply; a newer chat task takes precedence. Existing user-owned
+instructions and task files remain review-only proposals.
 
 UI pages:
 
@@ -316,8 +335,9 @@ UI pages:
 3. Memory & Code
 4. Tools & Profiles
 5. Review & Apply
-6. Recovery
-7. Guide
+6. Updates & Plugins
+7. Recovery
+8. Guide
 
 **Help → About Workflow Configurator** shows version, locality, modification boundaries, and provenance. Apply stays
 disabled until the current configuration has a matching Preview.
@@ -576,12 +596,13 @@ registration, and reproducible comparison.
 
 | Task | Recommended path |
 |---|---|
+| Implementation-first (new default) | Velocity: bounded memory/graph context → focused implementation; request checks, doctor, or review when needed |
 | Quick answer/docs | Tier 0; no plan; no code tests; no proactive MCP unless current docs/history controls it |
 | Bounded bug | Reproduce → locate controlling symbol/test → mini intent → focused fix/test → diff review |
 | Large refactor | Verify graph root/freshness → trace callers/reuse → compact plan → coherent slices → one broad checkpoint |
 | Security/migration | Tier 3 → one governed spec source → risk/rollback evidence → independent review → broad verification |
 | New AI tool research | Define missing capability → primary sources → overlap/data/runtime/cost → verdict; do not install |
-| Existing project | Configurator Analyze → smallest surface → identities/tools → Preview → safe Apply → doctor/checks |
+| Existing project | Configurator Analyze → smallest surface → identities/tools → Preview → safe Apply → doctor/checks only when selected or requested |
 
 ---
 

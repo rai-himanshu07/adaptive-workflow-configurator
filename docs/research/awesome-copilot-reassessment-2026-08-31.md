@@ -519,3 +519,79 @@ rejected overlap.
 - [Awesome Copilot plugin guide](https://github.com/github/awesome-copilot/blob/f11a4e441c5ff061b4f8ae37952be8c602e4034e/website/src/content/docs/learning-hub/installing-and-using-plugins.md)
 - [Official GitHub plugin creation guide](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/plugins-creating)
 - [Agent Plugins 1.0](https://agent-plugins.org/)
+
+## Update: 2026-10-03 Upstream Checker Delta
+
+**Scope:** Research against the Configurator's cached, checksum-validated
+metadata report and selected public source at the exact reported revision. No
+upstream asset was installed, imported, or marked reviewed; the local review
+baseline was not advanced. The August assessment above remains a historical
+snapshot, not a description of today's catalog.
+
+The cached check at `2026-10-03T18:05:39.980187+00:00` compares reviewed
+`f11a4e441c5ff061b4f8ae37952be8c602e4034e` to
+`143a3d976b3c1603cc8932984d5e1f28501cb5fc`. It reports 47 outstanding
+catalog paths, but only one change among the five specifically monitored
+assets: the plugin installation guide. Those 47 are **review-queue entries,
+not software updates**. The user has not approved any of them.
+
+### Recommended Next Changes
+
+1. **Prevent in-app documentation drift without adding an always-on skill.**
+   The Guide lives in `USER_GUIDE` in `workflow_configurator/gui.py`, separately
+   from `workflow_configurator/docs/CONFIGURATOR.md`. This caused the October
+   Velocity controls and task intake to appear in the app while the Guide still
+   described only the older balanced flow. The Guide and a focused regression
+   assertion were updated in this session. For future user-visible modes,
+   prefer one small shared source for the process summary or a targeted test
+   comparing Guide claims to the resolved policy and UI labels. The new
+   [docs-sync-audit skill](https://github.com/github/awesome-copilot/blob/143a3d976b3c1603cc8932984d5e1f28501cb5fc/skills/docs-sync-audit/SKILL.md)
+   offers useful compare-source-to-docs and generated-doc-source checks, but
+   defaults to a full-repository sweep without a scope. Borrow those checks
+   for a named changed feature; do not add a standing audit, 13 KB skill, or
+   new runtime dependency to the Velocity surface.
+
+2. **Make the upstream queue proportional without silently approving it.**
+   `review_items()` adds every catalog change, and `advance_review_baseline()`
+   refuses to move while any item lacks a recorded decision. That is correct
+   for a claimed fully reviewed baseline, but a single monitored docs change
+   currently accompanies 46 other entries, mostly unrelated agents and skills.
+   A proposed redesign would foreground monitored changes, then let the user
+   explicitly inspect or classify out-of-scope catalog groups. Any bulk
+   disposition must record its rationale, scope, revision, and item digests;
+   the baseline must not advance unless all entries have an explicit decision.
+   Never convert an uninspected path into an `adopt` disposition. Validate this
+   interaction with an actual large report before implementing it.
+
+3. **Keep the optional plugin exporter conservative.** The revised
+   [upstream plugin guide](https://github.com/github/awesome-copilot/blob/143a3d976b3c1603cc8932984d5e1f28501cb5fc/website/src/content/docs/learning-hub/installing-and-using-plugins.md)
+   uses `/plugin` instead of the older `/plugins` dashboard, explains
+   marketplace-based installs, and documents component disablement. Official
+   [GitHub plugin creation](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/plugins-creating)
+   and [plugin-format](https://docs.github.com/en/copilot/concepts/agents/about-plugins)
+   docs still support a legacy manifest with `agents: "agents/"` and local-path
+   testing, which is what the current no-overwrite exporter produces. Agent
+   Plugins 1.0 makes skills/MCP configuration portable, but Copilot-specific
+   agents move under `com.github.copilot/agents/`; merely adding `$schema` to
+   the current export would break discovery. Defer a format migration until a
+   local pilot proves discovery, version behavior, uninstall, and actual
+   file/context savings in the target VS Code and CLI environments. The local
+   `copilot` wrapper asked to install the CLI during research, so no plugin
+   runtime verification was attempted. Do not enable marketplace auto-update
+   for a reviewed workflow package.
+
+4. **Keep new audits opt-in.** The new
+   [test-gap-audit](https://github.com/github/awesome-copilot/blob/143a3d976b3c1603cc8932984d5e1f28501cb5fc/skills/test-gap-audit/SKILL.md)
+   skill is read-only, behavior-focused, and useful on a named risky feature;
+   without a scope it inventories the entire repository and adds a lengthy
+   review. The
+   [agent-architecture](https://github.com/github/awesome-copilot/blob/143a3d976b3c1603cc8932984d5e1f28501cb5fc/skills/agent-architecture/SKILL.md)
+   skill includes multi-document/PDF design work. Neither belongs in the
+   implementation-first default. Invoke a bounded audit or design explicitly
+   when its outcome justifies the overhead; do not install the catalog wholesale.
+
+**Order:** keep the Guide drift check (done); pilot a compact, explicit
+out-of-scope review interaction before redesigning baseline accounting;
+exercise the existing local plugin export only after a suitable Copilot CLI is
+already available. Measure whether any change reduces tool calls and active
+instruction bytes without weakening Preview, no-overwrite, or review history.

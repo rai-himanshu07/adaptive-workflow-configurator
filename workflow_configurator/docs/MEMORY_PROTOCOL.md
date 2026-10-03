@@ -13,14 +13,17 @@ Reserve `wing_copilot` for genuinely cross-project lessons.
 
 1. Call `mempalace_status` before project work.
 2. Inspect relevant built-in repo memory under `/memories/repo/`.
-3. Read `docs/HANDOFF.md` and its exact active plan.
+3. Read `docs/HANDOFF.md` and its exact active plan only when they are installed
+   and active. If no task is given in chat, use `docs/CURRENT_TASK.md` when it
+   exists; otherwise ask for the task.
 4. When resuming prior work or recovering after compaction, call
    `mempalace_diary_read` for agent `copilot` with wing `{{MEMORY_WING}}`, then
    search that wing for relevant durable
    synthesis before exploring source.
 5. If the handoff is missing, stale, or contradicted by the working tree, query
    Chronicle/session history for the last relevant session before reconstructing
-   work from source.
+   work from source. A missing optional handoff in Velocity mode is not a
+   degraded-memory condition.
 6. Before answering about a person, project, decision, or past event, call
    `mempalace_kg_query` or `mempalace_search`. Never guess from chat history.
 
@@ -50,7 +53,8 @@ succeeded when the tool is unavailable.
 - **Chronicle/session history:** recovery evidence for crashed or incomplete
    sessions; distill durable conclusions into MemPalace rather than treating raw
    chat history as permanent memory.
-- **Handoff and active plan:** current task state and exact stopping point.
+- **Handoff and active plan (when selected):** current task state and exact
+   stopping point; an optional current-task file supplies initial task details.
 - **Live files, language services, commands, and tests:** current code truth.
 
 Never use a mined drawer or old diary entry as proof that a current endpoint,
@@ -61,7 +65,8 @@ tree.
 
 After every substantial session:
 
-1. Update the active plan and `docs/HANDOFF.md`.
+1. Update an active plan and `docs/HANDOFF.md` only when installed and relevant;
+   Velocity does not create either for routine work.
 2. Prefer one atomic `mempalace_checkpoint` as agent `copilot`, with every item
    and the nested diary set to wing `{{MEMORY_WING}}`, using concise AAAK; use
    explicitly scoped `mempalace_diary_write` and `mempalace_add_drawer` as a documented
@@ -76,9 +81,11 @@ After every substantial session:
 If MemPalace is unavailable:
 
 1. State `MEMORY DEGRADED` and the failed operation.
-2. Continue only from the handoff, plan, repo memory, Git, and live code.
+2. Continue from any installed handoff/plan, the current task or chat, repo
+   memory, Git, and live code.
 3. Do not claim historical completeness.
-4. Record pending memory reads or writes in the handoff.
+4. Record pending memory reads or writes in the handoff if present; otherwise
+   report them directly and retain durable notes in repo memory.
 5. Retry `/memory-health` before ending the session; do not silently discard
    durable synthesis.
 

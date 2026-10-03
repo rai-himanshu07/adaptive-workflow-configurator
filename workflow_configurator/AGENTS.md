@@ -23,6 +23,7 @@ dependency operations.
 - Memory: `{{MEMORY_POLICY}}` in wing `{{MEMORY_WING}}`
 - Code intelligence: `{{CODE_INTELLIGENCE_POLICY}}` for project
   `{{CODEBASE_PROJECT_ID}}`
+- Technologies: {{TECHNOLOGY_STACK}}
 - Review: `{{REVIEW_TIER}}`
 
 Detailed resolved policy and selected optional capabilities are in
@@ -40,18 +41,12 @@ Detailed resolved policy and selected optional capabilities are in
 - Never expose credentials or perform destructive filesystem, database,
   deployment, or Git operations without explicit approval.
 - Add tests only for changed behavior, a reproduced bug, or a named risk.
-- Run the smallest affected check after a coherent slice; broaden once at the
-  configured checkpoint rather than after every edit.
+{{VALIDATION_RULE}}
 - Report failed or unavailable checks plainly.
 
 ## Task Routing
 
-- Questions, research, docs, and trivial configuration need no plan artifact and
-  no code tests.
-- Bounded low-risk edits use an inline/mini plan and the smallest affected check.
-- Coupled or multi-session changes use a compact plan and concise handoff.
-- Security, migration, regulated, or cross-service work uses the governed
-  specification path selected in `docs/WORKFLOW_CONFIG.md`.
+{{TASK_ROUTING_RULES}}
 
 Use MemPalace only according to the active memory policy and always scope
 project operations to `{{MEMORY_WING}}`. Use codebase-memory only according to

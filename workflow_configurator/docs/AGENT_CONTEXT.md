@@ -43,5 +43,6 @@ enter context intentionally.
 
 ## Validation
 
-Run the project doctor. It reports separately when experiment artifacts can be
+When requested or required by the resolved policy, run the project doctor. It
+reports separately when experiment artifacts can be
 committed and when they can enter agent search context.

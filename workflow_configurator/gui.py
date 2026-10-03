@@ -43,7 +43,7 @@ USER_GUIDE = """# Workflow Configurator Guide
 
 ## Installation surfaces
 
-- **Minimal:** three compact files for small/low-risk projects.
+- **Minimal:** three compact files for small/low-risk or Velocity projects.
 - **Standard:** adds compact agents, task state, context exclusions, and doctor.
 - **Governed:** adds one specification workflow, selected guards, and stronger
   evidence for security, migration, regulated, or cross-service work.
@@ -53,12 +53,39 @@ medium, and 250k for large. Dependency environments and tool caches are skipped.
 Discovery supports metrics and recommendations; Apply validates its exact
 destinations independently.
 
+## Execution mode and current task
+
+1. On **Project**, choose the target folder and optionally enter an initial
+    **Current task**. The desktop launcher opens this configurator repository by
+    default, so select the project you actually want to configure.
+2. On **Workflow**, **Execution mode: velocity** is the default for new
+    projects. It keeps validation and review manual, with bounded project-memory
+    and code-graph lookups. Choose `balanced` for adaptive checks and review;
+    older imported configurations without an execution mode stay Balanced.
+3. On **Tools & Profiles**, select any relevant stack profiles and describe
+    other technologies such as Rust in **Other technologies**. New configurator
+    projects leave test, lint, typecheck, and run commands unconfigured; supply
+    the actual commands for each project.
+4. On **Review & Apply**, choose **Preview changes** before **Apply safe changes**.
+    Existing agent files are never overwritten: inspect their proposals and
+    merge the new policy manually. Previously installed hooks also stay in place.
+
+An initial task is written to `docs/CURRENT_TASK.md` only on explicit Apply.
+A task in chat or an explicitly named file takes precedence; if none is clear,
+the agent asks. Existing task files remain untouched proposals. Task text is
+included in exported configuration, previews, and manifests; do not enter secrets.
+Use **File > Export configuration** to keep form settings for a later launch.
+
 ## Task and testing tiers
 
-Questions, research, documentation, and trivial configuration need no plan or
-code tests. Low-risk edits use an inline/mini plan and the smallest affected
-check. Coupled changes use a compact plan and focused checks per coherent slice.
-Broad suites run once at a checkpoint or governed risk boundary.
+In `balanced` mode, questions, research, documentation, and trivial configuration
+need no plan or code tests. Low-risk edits use an inline/mini plan and the
+smallest affected check. Coupled changes use a compact plan and focused checks
+per coherent slice. Broad suites run once at a checkpoint or governed risk
+boundary. In `velocity` mode, plans, tests, lint, typecheck, doctor, and review
+are user-invoked; optional hooks are not installed unless selected. Explicit
+policy overrides may require checks or review again. Hard Apply safety never
+depends on the execution mode.
 
 ## Tools and profiles
 
@@ -74,7 +101,9 @@ Automatic checks compare the latest catalog with the local reviewed baseline and
 download no asset bodies. Explicit inspection fetches only one selected,
 size-capped text asset and renders a read-only untrusted diff. Record a
 rationale-backed disposition for every item before advancing the local baseline.
-Nothing is installed or applied automatically.
+The review queue lists upstream metadata differences, not installed product
+updates or an instruction to install all listed assets. Nothing is installed,
+applied, or marked reviewed automatically.
 
 The optional local plugin export packages only the five already-reviewed generic
 specialists. Preview shows every file and hash. Export refuses overwrite and
@@ -87,8 +116,8 @@ cross-project lessons. Mining updates source retrieval; explicit checkpoints
 record decisions and session synthesis. codebase-memory is persistent locally,
 but its freshness must be checked when the active tool surface supports it.
 
-MemPalace 3.6 writable MCP sessions can hold the palace lock and block manual
-mining. A reviewed 3.8 shared writable hub is the recommended multi-session
+Concurrent writable MemPalace sessions can hold the palace lock and block manual
+mining. A reviewed shared writable hub is the recommended multi-session
 topology; this configurator diagnoses it but never upgrades or stops services.
 
 Analyze and Preview show a deterministic context-footprint proxy for current and
@@ -761,6 +790,12 @@ class WorkflowConfiguratorApp:
         self.summary_edit = QW.QLineEdit(self.controller.config.summary)
         form.addRow("Project name", self.project_name_edit)
         form.addRow("Summary", self.summary_edit)
+        self.task_details_edit = QW.QPlainTextEdit(self.controller.config.task_details)
+        self.task_details_edit.setMaximumHeight(100)
+        self.task_details_edit.setToolTip(
+            "Optional initial task. Apply creates docs/CURRENT_TASK.md only if missing."
+        )
+        form.addRow("Current task (optional)", self.task_details_edit)
 
         workflow_row = QW.QWidget()
         workflow_layout = QW.QHBoxLayout(workflow_row)
@@ -818,10 +853,17 @@ class WorkflowConfiguratorApp:
         )
         self.testing_combo = self._combo(core.VALID_TESTING_LEVELS, self.controller.config.testing_level)
         self.rigor_combo = self._combo(core.VALID_RIGOR_PRESETS, self.controller.config.rigor_preset)
+        self.execution_mode_combo = self._combo(
+            core.VALID_EXECUTION_MODES, self.controller.config.execution_mode
+        )
+        self.execution_mode_combo.setToolTip(
+            "Velocity keeps project memory and graph lookups but makes tests, doctor, review, and hooks manual."
+        )
         form.addRow("Complexity", self.complexity_combo)
         form.addRow("Project size", self.size_combo)
         form.addRow("Testing", self.testing_combo)
         form.addRow("Engineering rigor", self.rigor_combo)
+        form.addRow("Execution mode", self.execution_mode_combo)
         override_row = QW.QWidget()
         override_layout = QW.QHBoxLayout(override_row)
         override_layout.setContentsMargins(0, 0, 0, 0)
@@ -1101,6 +1143,11 @@ class WorkflowConfiguratorApp:
         top.addWidget(profiles)
         top.addWidget(mcp)
         body_layout.addLayout(top)
+        technology_form = QW.QFormLayout()
+        self.technology_stack_edit = QW.QLineEdit(self.controller.config.technology_stack)
+        self.technology_stack_edit.setPlaceholderText("Rust, React, Python")
+        technology_form.addRow("Other technologies", self.technology_stack_edit)
+        body_layout.addLayout(technology_form)
 
         session = QW.QGroupBox("Session guidance")
         session_form = QW.QFormLayout(session)
@@ -1518,6 +1565,8 @@ class WorkflowConfiguratorApp:
         self.target_edit.textChanged.connect(self._target_changed)
         self.project_name_edit.textEdited.connect(self._identity_changed)
         self.summary_edit.textEdited.connect(self._form_changed)
+        self.task_details_edit.textChanged.connect(self._form_changed)
+        self.technology_stack_edit.textChanged.connect(self._form_changed)
         self.memory_wing_edit.textEdited.connect(
             self._memory_wing_changed
         )
@@ -1530,6 +1579,7 @@ class WorkflowConfiguratorApp:
             self.size_combo,
             self.testing_combo,
             self.rigor_combo,
+            self.execution_mode_combo,
             self.session_profile_combo,
         ):
             combo.currentTextChanged.connect(self._form_changed)
@@ -1601,11 +1651,13 @@ class WorkflowConfiguratorApp:
             {
                 "project_name": self.project_name_edit.text(),
                 "summary": self.summary_edit.text(),
+                "task_details": self.task_details_edit.toPlainText(),
                 "workflow": "new" if self.new_radio.isChecked() else "existing",
                 "complexity": self.complexity_combo.currentText(),
                 "project_size": self.size_combo.currentText(),
                 "testing_level": self.testing_combo.currentText(),
                 "rigor_preset": self.rigor_combo.currentText(),
+                "execution_mode": self.execution_mode_combo.currentText(),
                 "memory_wing": self.memory_wing_edit.text(),
                 "codebase_project_id": self.codebase_project_edit.text(),
                 "session_profile": self.session_profile_combo.currentText(),
@@ -1617,6 +1669,7 @@ class WorkflowConfiguratorApp:
                 "stack_profiles": [
                     name for name, check in self.profile_checks.items() if check.isChecked()
                 ],
+                "technology_stack": self.technology_stack_edit.text(),
                 "mcp_servers": [
                     name for name, check in self.mcp_checks.items() if check.isChecked()
                 ],
@@ -1721,6 +1774,8 @@ class WorkflowConfiguratorApp:
         self._syncing = True
         self.project_name_edit.setText(config.project_name)
         self.summary_edit.setText(config.summary)
+        self.task_details_edit.setPlainText(config.task_details)
+        self.technology_stack_edit.setText(config.technology_stack)
         self.memory_wing_edit.setText(config.memory_wing)
         self.codebase_project_edit.setText(config.codebase_project_id)
         self.new_radio.setChecked(config.workflow == "new")
@@ -1730,6 +1785,7 @@ class WorkflowConfiguratorApp:
             (self.size_combo, config.project_size),
             (self.testing_combo, config.testing_level),
             (self.rigor_combo, config.rigor_preset),
+            (self.execution_mode_combo, config.execution_mode),
             (self.session_profile_combo, config.session_profile),
         ):
             combo.setCurrentText(value)

@@ -56,7 +56,8 @@ _POLICY_DESCRIPTIONS = {
         "minimal": (
             "install only compact always-on instructions and the generated workflow "
             "configuration; stronger plan, documentation, memory, code-intelligence, "
-            "review, or guard choices can still promote the effective file set"
+            "review, or guard choices can still promote the effective file set "
+            "(required memory and graph stay compact in velocity mode)"
         ),
         "standard": (
             "add planner/executor/reviewer roles, compact handoff and resume skills, "
@@ -68,7 +69,7 @@ _POLICY_DESCRIPTIONS = {
         ),
     },
     "plan_tier": {
-        "none": "no plan artifact for questions, research, docs, or trivial configuration",
+        "none": "no plan artifact by default; start bounded implementation or ask when the task is unclear",
         "mini": "inline or mini plan, at most 25 lines, for bounded low-risk edits",
         "compact": (
             "compact approved plan, at most 80 lines, for coupled or multi-session "
@@ -80,6 +81,7 @@ _POLICY_DESCRIPTIONS = {
         ),
     },
     "validation_tier": {
+        "manual": "run tests, lint, typecheck, and project doctor only when the user requests them",
         "none": "no code tests for research/docs; use only the smallest applicable diagnostic",
         "focused": "run the smallest affected check after a coherent implementation slice",
         "broad": "run focused checks plus broad relevant tests or diagnostics at a logical checkpoint",
@@ -100,7 +102,7 @@ _POLICY_DESCRIPTIONS = {
         "on-demand": "use the canonical project wing only when prior decisions or session history matter",
         "required": (
             "use project-scoped retrieval and an explicit-wing checkpoint for "
-            "substantial work; promotes the Governed surface"
+            "substantial work; promotes the Governed surface except in velocity mode"
         ),
     },
     "code_intelligence_policy": {
@@ -108,10 +110,11 @@ _POLICY_DESCRIPTIONS = {
         "on-demand": "use available graph tools when architecture, callers, impact, or reuse discovery matters",
         "required": (
             "verify the available graph surface and use it for architecture and impact "
-            "before editing; promotes the Governed surface"
+            "before editing; promotes the Governed surface except in velocity mode"
         ),
     },
     "review_tier": {
+        "manual": "run self-review or an independent reviewer only when the user requests it",
         "self": "self-review the final diff and relevant evidence; do not manufacture findings",
         "independent": (
             "independent read-only review is required before completion or release; "
@@ -156,7 +159,7 @@ _POLICY_DIMENSION_GUIDANCE = {
         "live files remain authoritative."
     ),
     "review_tier": (
-        "Controls who must review completed work. It does not authorize overwriting "
+        "Controls when review is expected. It does not authorize overwriting "
         "conflicting project files."
     ),
     "protocol_guard": (
@@ -204,7 +207,7 @@ def render_policy_override_guide() -> str:
         "## Advanced override reference",
         "",
         "`auto` removes the explicit override and uses the value derived from "
-        "complexity, project size, testing level, rigor, selected integrations, "
+        "execution mode, complexity, project size, testing level, rigor, selected integrations, "
         "and security hooks.",
         "",
         "Options are ordered from lighter to stronger. A stronger choice increases "
@@ -237,6 +240,17 @@ def render_policy_override_guide() -> str:
 
 
 def _base_policy_values(config: Any) -> dict[str, str]:
+    if getattr(config, "execution_mode", "balanced") == "velocity":
+        return {
+            "installation_surface": "minimal",
+            "plan_tier": "none",
+            "validation_tier": "manual",
+            "documentation_tier": "changed-only",
+            "memory_policy": "required",
+            "code_intelligence_policy": "required",
+            "review_tier": "manual",
+            "protocol_guard": "off",
+        }
     risk = (
         {"minimal": 0, "standard": 1, "advanced": 2}[config.complexity]
         + {"small": 0, "medium": 1, "large": 2}[config.project_size]

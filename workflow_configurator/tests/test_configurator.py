@@ -54,6 +54,7 @@ class ConfigModelTests(unittest.TestCase):
             project_size="large",
             testing_level="broad",
             stack_profiles=("python", "fastapi"),
+            execution_mode="balanced",
             mcp_servers=("context7",),
             optional_integrations=("serena", "affected-tests"),
             commands={
@@ -114,6 +115,7 @@ class ConfigModelTests(unittest.TestCase):
             core.derive_policy(
                 core.WorkflowConfig(
                     rigor_preset="strong",
+                    execution_mode="balanced",
                     complexity="advanced",
                     project_size="large",
                     policy_overrides={
@@ -141,6 +143,11 @@ class ConfigModelTests(unittest.TestCase):
         ).read_text(encoding="utf-8").lower()
         self.assertIn("`auto` removes the explicit override", rendered)
         self.assertIn("permanent safety boundaries", USER_GUIDE)
+        self.assertIn("Execution mode: velocity", USER_GUIDE)
+        self.assertIn("is the default for new", USER_GUIDE)
+        self.assertIn("docs/CURRENT_TASK.md", USER_GUIDE)
+        self.assertIn("Previously installed hooks also stay in place", USER_GUIDE)
+        self.assertIn("not installed product", USER_GUIDE)
         for dimension, values in core.POLICY_DIMENSION_VALUES.items():
             metadata = catalog[dimension]
             self.assertTrue(str(metadata["summary"]).strip())
@@ -180,6 +187,12 @@ class ConfigModelTests(unittest.TestCase):
             ("python", "data-science"),
             defaults.stack_profiles,
         )
+        self.assertEqual("pytest -x -q", defaults.commands["test"])
+        self.assertEqual(
+            {"test": "none", "lint": "none", "typecheck": "none", "run": "none"},
+            core.WorkflowConfig.from_dict({"version": 2}).commands,
+        )
+        self.assertEqual("none", core.WorkflowConfig().commands["test"])
         self.assertIn("experiment-runner", defaults.optional_integrations)
         self.assertIn("Python and data-science", defaults.summary)
         legacy_guard = core.WorkflowConfig.from_dict(
@@ -198,6 +211,164 @@ class ConfigModelTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(core.ConfigError, "reserved"):
             core.WorkflowConfig(memory_wing="wing_copilot")
+
+    def test_new_cli_commands_are_neutral_and_legacy_defaults_remain_python(self) -> None:
+        command = subprocess.run(
+            [sys.executable, str(INSTALLER), "--workflow", "new", "--export-config", "-"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(0, command.returncode, command.stderr)
+        self.assertEqual("none", json.loads(command.stdout)["commands"]["test"])
+        self.assertEqual("velocity", json.loads(command.stdout)["execution_mode"])
+        balanced = subprocess.run(
+            [
+                sys.executable, str(INSTALLER), "--workflow", "new",
+                "--execution-mode", "balanced", "--export-config", "-",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(0, balanced.returncode, balanced.stderr)
+        self.assertEqual("balanced", json.loads(balanced.stdout)["execution_mode"])
+        from workflow_configurator import install
+
+        self.assertEqual("pytest -x -q", install.DEFAULT_TEST_COMMAND)
+
+    def test_cli_exports_mixed_stack_velocity_and_initial_task(self) -> None:
+        command = subprocess.run(
+            [
+                sys.executable, str(INSTALLER), "--workflow", "existing",
+                "--profile", "python", "--profile", "react",
+                "--technology-stack", "Rust, React, Python",
+                "--execution-mode", "velocity",
+                "--task-details", "Implement the API first.",
+                "--command", "test=cargo test && npm test && python -m unittest",
+                "--export-config", "-",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(0, command.returncode, command.stderr)
+        config = core.WorkflowConfig.from_dict(json.loads(command.stdout))
+        self.assertEqual(("python", "react"), config.stack_profiles)
+        self.assertEqual("Rust, React, Python", config.technology_stack)
+        self.assertEqual("velocity", config.execution_mode)
+        self.assertEqual("Implement the API first.", config.task_details)
+        self.assertEqual("cargo test && npm test && python -m unittest", config.commands["test"])
+
+    def test_mixed_stack_velocity_and_task_round_trip(self) -> None:
+        config = core.WorkflowConfig(
+            stack_profiles=("python", "react"),
+            technology_stack="Rust, React, Python",
+            execution_mode="velocity",
+            task_details="Implement the API\nKeep the UI usable.",
+        )
+        self.assertEqual(config.to_dict(), core.WorkflowConfig.from_dict(config.to_dict()).to_dict())
+        fresh = core.config_for_target("example-project", workflow="new")
+        self.assertEqual("velocity", fresh.execution_mode)
+        self.assertEqual("manual", core.derive_policy(fresh).validation_tier)
+        self.assertEqual(
+            ["AGENTS.md", ".github/copilot-instructions.md"],
+            core.selected_files(fresh),
+        )
+        self.assertEqual("balanced", core.WorkflowConfig.from_dict({"version": 2}).execution_mode)
+        with self.assertRaisesRegex(core.ConfigError, "execution_mode"):
+            core.WorkflowConfig(execution_mode="unsafe")
+        with self.assertRaisesRegex(core.ConfigError, "single line"):
+            core.WorkflowConfig(technology_stack="Rust\nReact")
+        literal = core.WorkflowConfig(technology_stack="Rust {{FEATURE}}")
+        self.assertIn("Rust {{FEATURE}}", core.render_template(ROOT / "AGENTS.md", literal))
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "unknown.md"
+            source.write_text("{{UNKNOWN_TOKEN}}", encoding="utf-8")
+            with self.assertRaisesRegex(core.ApplyError, "unresolved template tokens"):
+                core.render_template(source, literal)
+
+    def test_velocity_mode_keeps_memory_and_graph_without_automatic_process(self) -> None:
+        config = core.WorkflowConfig(
+            execution_mode="velocity",
+            complexity="advanced",
+            project_size="large",
+            testing_level="broad",
+            rigor_preset="strong",
+        )
+        policy = core.derive_policy(config)
+        self.assertEqual("manual", policy.validation_tier)
+        self.assertEqual("manual", policy.review_tier)
+        self.assertEqual("none", policy.plan_tier)
+        self.assertEqual("required", policy.memory_policy)
+        self.assertEqual("required", policy.code_intelligence_policy)
+        self.assertFalse(policy.require_protocol_guard)
+        self.assertIn("hard path, secret", policy.safety_approvals)
+        files = core.selected_files(config)
+        self.assertEqual(["AGENTS.md", ".github/copilot-instructions.md"], files)
+        steps = " ".join(core.guidance(config)["steps"])
+        self.assertIn("bounded code-graph", steps)
+        self.assertIn(
+            "run self-review or an independent reviewer only when the user requests it",
+            steps,
+        )
+        self.assertNotIn("broad diagnostics", steps)
+        agents = core.render_template(ROOT / "AGENTS.md", config)
+        copilot = core.render_template(ROOT / ".github/copilot-instructions.md", config)
+        executor = core.render_template(ROOT / ".github/agents/executor.agent.md", config)
+        self.assertIn("one code-graph lookup", agents)
+        self.assertIn("only when the user requests them", agents)
+        self.assertNotIn("Run the smallest affected check", agents)
+        self.assertIn("one bounded project-memory lookup", copilot)
+        self.assertIn("only when a policy detail is needed", copilot)
+        self.assertNotIn("Read `AGENTS.md` and `docs/WORKFLOW_CONFIG.md`", copilot)
+        self.assertNotIn("Test changed behavior", copilot)
+        self.assertIn("only on user request", executor)
+        plan = core.render_template(ROOT / "docs/PLAN.template.md", config)
+        memory = core.render_template(ROOT / "docs/MEMORY_PROTOCOL.md", config)
+        code = core.render_template(ROOT / "docs/CODE_INTELLIGENCE.md", config)
+        resume = core.render_template(ROOT / ".github/skills/resume-session/SKILL.md", config)
+        self.assertIn("record unrun checks in Velocity mode", plan)
+        self.assertIn("only when they are installed", memory)
+        self.assertIn("one\n   bounded graph lookup", code)
+        self.assertIn("only when the resolved validation", resume)
+
+    def test_velocity_explicit_overrides_update_generated_instructions(self) -> None:
+        config = core.WorkflowConfig(
+            execution_mode="velocity",
+            policy_overrides={
+                "validation_tier": {"value": "focused", "reason": ""},
+                "review_tier": {"value": "independent", "reason": ""},
+                "memory_policy": {"value": "on-demand", "reason": "Only when relevant"},
+                "code_intelligence_policy": {"value": "on-demand", "reason": "Only when relevant"},
+                "protocol_guard": {"value": "on", "reason": ""},
+            },
+        )
+        self.assertIn(".github/agents/reviewer.agent.md", core.selected_files(config))
+        self.assertIn(".github/hooks/workflow_guard.json", core.selected_files(config))
+        agents = core.render_template(ROOT / "AGENTS.md", config)
+        copilot = core.render_template(ROOT / ".github/copilot-instructions.md", config)
+        executor = core.render_template(ROOT / ".github/agents/executor.agent.md", config)
+        self.assertIn("Run the smallest affected check", agents)
+        self.assertIn("independent read-only review is required", agents)
+        self.assertIn("selected hooks run automatically", agents)
+        self.assertNotIn("project-memory lookup", agents)
+        self.assertIn("Skip it for known-file/literal lookups", copilot)
+        self.assertIn("smallest affected check", executor)
+        self.assertNotIn("project memory and a bounded code-graph", " ".join(core.guidance(config)["steps"]))
+
+    def test_manual_validation_override_is_not_undone_by_balanced_routing(self) -> None:
+        config = core.WorkflowConfig(
+            testing_level="none",
+            execution_mode="balanced",
+            policy_overrides={
+                "validation_tier": {"value": "manual", "reason": "User runs checks"}
+            },
+        )
+        agents = core.render_template(ROOT / "AGENTS.md", config)
+        self.assertIn("checks run only on user request", agents)
+        self.assertNotIn("smallest affected check", agents)
+        self.assertNotIn("smallest format/diagnostic check", " ".join(core.guidance(config)["steps"]))
 
     def test_optional_integration_guidance_is_explicit_and_non_installing(self) -> None:
         config = core.WorkflowConfig(
@@ -223,6 +394,7 @@ class ConfigModelTests(unittest.TestCase):
                     complexity="minimal",
                     project_size="small",
                     testing_level="none",
+                    execution_mode="balanced",
                     stack_profiles=(),
                     with_context_settings=True,
                 ),
@@ -232,6 +404,7 @@ class ConfigModelTests(unittest.TestCase):
                 core.WorkflowConfig(
                     complexity="standard",
                     project_size="medium",
+                    execution_mode="balanced",
                     stack_profiles=(),
                 ),
                 "standard",
@@ -240,6 +413,7 @@ class ConfigModelTests(unittest.TestCase):
                 core.WorkflowConfig(
                     rigor_preset="strong",
                     project_size="large",
+                    execution_mode="balanced",
                     stack_profiles=(),
                 ),
                 "governed",
@@ -284,6 +458,7 @@ class ConfigModelTests(unittest.TestCase):
         governed_spec = core.WorkflowConfig(
             rigor_preset="strong",
             project_size="large",
+            execution_mode="balanced",
             stack_profiles=(),
             optional_integrations=("spec-kit",),
         )
@@ -298,6 +473,7 @@ class ConfigModelTests(unittest.TestCase):
         weakened_surface = core.WorkflowConfig(
             rigor_preset="strong",
             project_size="large",
+            execution_mode="balanced",
             stack_profiles=(),
             policy_overrides={
                 "installation_surface": {
@@ -317,6 +493,7 @@ class ConfigModelTests(unittest.TestCase):
         for preset, expected_surface in expected_surfaces.items():
             config = core.WorkflowConfig(
                 rigor_preset=preset,
+                execution_mode="balanced",
                 complexity="minimal",
                 project_size="small",
                 testing_level="none",
@@ -329,6 +506,7 @@ class ConfigModelTests(unittest.TestCase):
         strengthened = core.derive_policy(
             core.WorkflowConfig(
                 rigor_preset="light",
+                execution_mode="balanced",
                 complexity="minimal",
                 project_size="small",
                 testing_level="none",
@@ -352,6 +530,7 @@ class ConfigModelTests(unittest.TestCase):
         weakened = core.derive_policy(
             core.WorkflowConfig(
                 rigor_preset="strong",
+                execution_mode="balanced",
                 complexity="advanced",
                 project_size="large",
                 testing_level="broad",
@@ -373,6 +552,7 @@ class ConfigModelTests(unittest.TestCase):
         details = core.policy_override_details(
             core.WorkflowConfig(
                 rigor_preset="strong",
+                execution_mode="balanced",
                 complexity="advanced",
                 project_size="large",
                 policy_overrides={
@@ -419,7 +599,7 @@ class ConfigModelTests(unittest.TestCase):
             "codebase_memory": {"status": "identity-mismatch"},
         }
         limited = core.continuity_summary(
-            core.WorkflowConfig(stack_profiles=()),
+            core.WorkflowConfig(stack_profiles=(), execution_mode="balanced"),
             unavailable,
         )
         self.assertEqual("limited", limited["status"])
@@ -430,6 +610,7 @@ class ConfigModelTests(unittest.TestCase):
 
         required_config = core.WorkflowConfig(
             rigor_preset="strong",
+            execution_mode="balanced",
             stack_profiles=(),
         )
         degraded = core.continuity_summary(required_config, unavailable)
@@ -593,6 +774,37 @@ class ProjectLifecycleTests(unittest.TestCase):
             self.assertIn("Python", report.facts["languages"])
             self.assertIn("python", report.recommendations)
 
+    def test_optional_current_task_is_previewed_and_never_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "project"
+            target.mkdir()
+            config = core.WorkflowConfig(
+                workflow="existing",
+                execution_mode="velocity",
+                task_details="Implement {{FEATURE}} safely.\nKeep the current API.",
+            )
+            task_path = target / "docs/CURRENT_TASK.md"
+            preview = core.preview_project(target, config)
+            self.assertFalse(task_path.exists())
+            self.assertEqual(
+                "missing",
+                next(action.status for action in preview.actions if action.path == "docs/CURRENT_TASK.md"),
+            )
+            result = core.apply_project(target, config, expected_report=preview)
+            self.assertIn("docs/CURRENT_TASK.md", result.added_paths)
+            content = task_path.read_text(encoding="utf-8")
+            self.assertIn("{{FEATURE}}", content)
+            updated = core.WorkflowConfig.from_dict({
+                **config.to_dict(), "task_details": "A different task"
+            })
+            later = core.preview_project(target, updated)
+            self.assertEqual(
+                "conflicting_proposal",
+                next(action.status for action in later.actions if action.path == "docs/CURRENT_TASK.md"),
+            )
+            core.apply_project(target, updated, expected_report=later)
+            self.assertEqual(content, task_path.read_text(encoding="utf-8"))
+
     def test_apply_rejects_project_actions_changed_after_preview(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "project"
@@ -627,6 +839,7 @@ class ProjectLifecycleTests(unittest.TestCase):
                 project_name="Demo",
                 workflow="existing",
                 project_size="medium",
+                execution_mode="balanced",
                 stack_profiles=("python", "data-science"),
                 testing_level="focused",
             )
@@ -976,6 +1189,7 @@ class ProjectLifecycleTests(unittest.TestCase):
                 workflow="new",
                 project_name="project",
                 project_size="medium",
+                execution_mode="balanced",
                 stack_profiles=(),
                 with_context_settings=False,
             )
@@ -1529,6 +1743,7 @@ class GuiControllerTests(unittest.TestCase):
         base = core.WorkflowConfig(
             workflow="new",
             project_name="project",
+            execution_mode="balanced",
             stack_profiles=(),
             rigor_preset="standard",
             protocol_guard=None,
@@ -1626,6 +1841,7 @@ class GuiControllerTests(unittest.TestCase):
                 set(app.integration_checks),
             )
             self.assertIn("Guide", WorkflowConfiguratorApp.PAGE_NAMES)
+            self.assertEqual("velocity", app.execution_mode_combo.currentText())
             self.assertIn("Updates & Plugins", WorkflowConfiguratorApp.PAGE_NAMES)
             self.assertEqual("new_project", app.memory_wing_edit.text())
             self.assertEqual("new-project", app.codebase_project_edit.text())
@@ -1651,6 +1867,21 @@ class GuiControllerTests(unittest.TestCase):
             self.assertFalse(target.exists())
             self.assertGreater(app.action_tree.topLevelItemCount(), 0)
             self.assertTrue(app.apply_button.isEnabled())
+            app.execution_mode_combo.setCurrentText("velocity")
+            app.technology_stack_edit.setText("Rust, React, Python")
+            app.task_details_edit.setPlainText("Implement the API first.")
+            app.application.processEvents()
+            self.assertFalse(app.apply_button.isEnabled())
+            self.assertEqual("velocity", app._form_config().execution_mode)
+            self.assertEqual("Rust, React, Python", app._form_config().technology_stack)
+            self.assertEqual("Implement the API first.", app._form_config().task_details)
+            app._preview()
+            app.application.processEvents()
+            self.assertTrue(app.apply_button.isEnabled())
+            self.assertIn(
+                "docs/CURRENT_TASK.md",
+                [action.path for action in app._preview_report.actions],
+            )
             app.complexity_combo.setCurrentText("advanced")
             app.application.processEvents()
             self.assertFalse(app.apply_button.isEnabled())
@@ -1725,6 +1956,7 @@ class GuiControllerTests(unittest.TestCase):
             config = core.WorkflowConfig(
                 workflow="existing",
                 project_name="project",
+                execution_mode="balanced",
                 stack_profiles=(),
                 with_context_settings=False,
             )
