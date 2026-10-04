@@ -536,6 +536,30 @@ class DoctorBehaviorTests(unittest.TestCase):
             self.assertIn("plan.missing", codes)
             self.assertIn("template.unresolved", codes)
 
+    def test_initial_task_tokens_are_not_template_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "project"
+            self.assertEqual(0, run(installer_command(target)).returncode)
+            (target / ".gitignore").write_text("artifacts/\n", encoding="utf-8")
+            (target / "docs/CURRENT_TASK.md").write_text(
+                "# Current Task\n\nImplement {{FEATURE}} safely.\n", encoding="utf-8"
+            )
+            doctor = target / DOCTOR.relative_to(ROOT)
+            clean = run([sys.executable, str(doctor), "--root", str(target), "--strict", "--json"])
+            self.assertEqual(0, clean.returncode, clean.stdout)
+
+            instructions = target / ".github/copilot-instructions.md"
+            instructions.write_text(
+                instructions.read_text(encoding="utf-8") + "\n{{BROKEN_TOKEN}}\n",
+                encoding="utf-8",
+            )
+            broken = run([sys.executable, str(doctor), "--root", str(target), "--json"])
+            self.assertEqual(1, broken.returncode)
+            self.assertIn(
+                "template.unresolved",
+                {item["code"] for item in json.loads(broken.stdout)["findings"]},
+            )
+
     def test_malformed_mcp_is_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "project"

@@ -102,8 +102,10 @@ download no asset bodies. Explicit inspection fetches only one selected,
 size-capped text asset and renders a read-only untrusted diff. Record a
 rationale-backed disposition for every item before advancing the local baseline.
 The review queue lists upstream metadata differences, not installed product
-updates or an instruction to install all listed assets. Nothing is installed,
-applied, or marked reviewed automatically.
+updates or an instruction to install all listed assets. Monitored changes and
+other catalog differences are shown separately; pending entries do not alter
+configured projects. Nothing is installed, applied, or marked reviewed
+automatically.
 
 The optional local plugin export packages only the five already-reviewed generic
 specialists. Preview shows every file and hash. Export refuses overwrite and
@@ -786,6 +788,12 @@ class WorkflowConfiguratorApp:
         open_button.clicked.connect(self._open_target)
         target_layout.addWidget(open_button)
         form.addRow("Target folder", target_row)
+        self.target_hint = QW.QLabel(
+            "Confirm this is the repository to configure. The desktop shortcut "
+            "initially selects the Configurator itself."
+        )
+        self.target_hint.setWordWrap(True)
+        form.addRow("", self.target_hint)
         self.project_name_edit = QW.QLineEdit(self.controller.config.project_name)
         self.summary_edit = QW.QLineEdit(self.controller.config.summary)
         form.addRow("Project name", self.project_name_edit)
@@ -857,13 +865,21 @@ class WorkflowConfiguratorApp:
             core.VALID_EXECUTION_MODES, self.controller.config.execution_mode
         )
         self.execution_mode_combo.setToolTip(
-            "Velocity keeps project memory and graph lookups but makes tests, doctor, review, and hooks manual."
+            "Velocity keeps bounded memory and graph lookups; checks and review "
+            "are manual unless overridden. Hooks run only when selected."
         )
+        self.execution_mode_detail = QW.QLabel()
+        self.execution_mode_detail.setWordWrap(True)
+        self.execution_mode_combo.currentTextChanged.connect(
+            self._refresh_execution_mode_detail
+        )
+        form.addRow("Execution mode", self.execution_mode_combo)
+        form.addRow("", self.execution_mode_detail)
+        self._refresh_execution_mode_detail(self.execution_mode_combo.currentText())
         form.addRow("Complexity", self.complexity_combo)
         form.addRow("Project size", self.size_combo)
         form.addRow("Testing", self.testing_combo)
         form.addRow("Engineering rigor", self.rigor_combo)
-        form.addRow("Execution mode", self.execution_mode_combo)
         override_row = QW.QWidget()
         override_layout = QW.QHBoxLayout(override_row)
         override_layout.setContentsMargins(0, 0, 0, 0)
@@ -886,6 +902,15 @@ class WorkflowConfiguratorApp:
         splitter.setStretchFactor(1, 1)
         layout.addWidget(splitter, 1)
 
+    def _refresh_execution_mode_detail(self, mode: str) -> None:
+        self.execution_mode_detail.setText(
+            "Velocity: bounded project memory and code graph; plans, checks, doctor, "
+            "and review on request. Hooks run only if selected; overrides can add requirements."
+            if mode == "velocity"
+            else "Balanced: planning, checks, and review follow project scope and rigor. "
+            "See the resolved engineering policy."
+        )
+
     def _refresh_override_summary(self) -> None:
         if not self.policy_overrides:
             self.override_summary_label.setText(
@@ -902,10 +927,7 @@ class WorkflowConfiguratorApp:
     def _edit_overrides(self) -> None:
         QW = self.QtWidgets
         try:
-            raw = self._form_config().to_dict()
-            raw["policy_overrides"] = {}
-            raw["protocol_guard"] = None
-            base = core.WorkflowConfig.from_dict(raw)
+            base = self._form_config(without_policy_overrides=True)
             derived = core.derive_policy(base)
         except core.ConfigError as error:
             self._show_error(error)
@@ -1643,7 +1665,9 @@ class WorkflowConfiguratorApp:
             self.copy_action_button.setEnabled(False)
             self.open_action_button.setEnabled(False)
 
-    def _form_config(self, *, commit_target: bool = False) -> core.WorkflowConfig:
+    def _form_config(
+        self, *, commit_target: bool = False, without_policy_overrides: bool = False
+    ) -> core.WorkflowConfig:
         if commit_target:
             self.controller.set_target(self.target_edit.text())
         raw = self.controller.config.to_dict()
@@ -1662,10 +1686,11 @@ class WorkflowConfiguratorApp:
                 "codebase_project_id": self.codebase_project_edit.text(),
                 "session_profile": self.session_profile_combo.currentText(),
                 "protocol_guard": None,
-                "policy_overrides": {
-                    name: dict(value)
-                    for name, value in self.policy_overrides.items()
-                },
+                "policy_overrides": (
+                    {} if without_policy_overrides else {
+                        name: dict(value) for name, value in self.policy_overrides.items()
+                    }
+                ),
                 "stack_profiles": [
                     name for name, check in self.profile_checks.items() if check.isChecked()
                 ],
@@ -1846,9 +1871,13 @@ class WorkflowConfiguratorApp:
             elif isinstance(result, core.ApplyResult):
                 self._show_report(result.report, authorize_apply=False)
                 self._invalidate_preview()
-                self.window.statusBar().showMessage(
+                message = (
                     f"Apply: {len(result.added_paths)} added, {len(result.merged_paths)} safely merged."
                 )
+                if result.proposals:
+                    message += f" {len(result.proposals)} proposal(s) still require manual merge."
+                self.preview_label.setText(message)
+                self.window.statusBar().showMessage(message)
                 try:
                     self._show_recovery(self.controller.restore_instructions())
                 except (core.RollbackError, core.SafetyError):
@@ -1947,7 +1976,12 @@ class WorkflowConfiguratorApp:
             self.preview_label.setText(
                 "Preview required before Apply."
                 if has_safe
-                else "Preview current: no safe project changes are needed."
+                else (
+                    f"Preview current: no automatic changes available; "
+                    f"{len(report.proposals)} proposal(s) require manual merge."
+                    if report.proposals
+                    else "Preview current: no safe project changes are needed."
+                )
             )
             self.preview_label.setToolTip("")
             self.apply_button.setToolTip(
@@ -2308,7 +2342,11 @@ class WorkflowConfiguratorApp:
                 decision = self.upstream_service.decision_for(review_item)
                 row = self.QtWidgets.QTreeWidgetItem(
                     [
-                        review_item.change.title(),
+                        (
+                            "Monitored: " + review_item.change.title()
+                            if review_item.label
+                            else review_item.change.title()
+                        ),
                         review_item.path,
                         decision.disposition if decision is not None else "Pending",
                     ]
@@ -2319,8 +2357,10 @@ class WorkflowConfiguratorApp:
             self.upstream_queue.resizeColumnToContents(0)
             self.upstream_queue.resizeColumnToContents(2)
             status = (
-                f"{report.status}: {len(outstanding)} of {len(items)} item(s) "
-                f"still need a decision. Baseline {report.reviewed_revision[:12]}."
+                f"Monitored changes: {len(report.monitored_changes)}. "
+                f"Other catalog differences: {len(items) - len(report.monitored_changes)}. "
+                f"Pending baseline decisions: {len(outstanding)}. "
+                "Configured workflows are unchanged."
             )
         if self._upstream_error:
             status += " Update warning: " + self._upstream_error
@@ -2745,18 +2785,25 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Iterable[str] | None = None) -> int:
+def main(
+    argv: Iterable[str] | None = None,
+    *,
+    initial_config: core.WorkflowConfig | None = None,
+) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else None)
     target = args.target_option or args.target_path or Path(".")
+    if args.config is not None and initial_config is not None:
+        print("GUI configuration error: choose a config file or an initial configuration", file=sys.stderr)
+        return 2
     if args.headless_smoke:
         try:
-            config = core.load_config(args.config) if args.config is not None else None
+            config = initial_config or (core.load_config(args.config) if args.config is not None else None)
             print(json.dumps(headless_smoke(target, config), indent=2, sort_keys=True))
             return 0
         except (core.ConfigError, core.SafetyError) as error:
             print(f"GUI headless smoke failed: {error}", file=sys.stderr)
             return 2
-    controller = ConfiguratorController(target)
+    controller = ConfiguratorController(target, initial_config)
     if args.config is not None:
         try:
             controller.import_config(args.config)

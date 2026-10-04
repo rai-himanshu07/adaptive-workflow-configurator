@@ -1425,8 +1425,9 @@ def _ensure_directory(path: Path, created: list[Path]) -> None:
         current = current.parent
     if current.is_symlink() or (current.exists() and not current.is_dir()):
         raise SafetyError(f"unsafe directory parent: {current}")
-    path.mkdir(parents=True, exist_ok=False)
-    created.extend(reversed(missing))
+    for directory in reversed(missing):
+        directory.mkdir(exist_ok=False)
+        created.append(directory)
 
 
 def _sha256_bytes(content: bytes) -> str:

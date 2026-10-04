@@ -730,12 +730,17 @@ def _configurator_main(args: argparse.Namespace) -> int:
             from workflow_configurator import gui
         except ModuleNotFoundError:
             from . import gui  # pragma: no cover - package execution fallback
+        try:
+            config = _config_from_args(args)
+        except configurator_core.ConfigError as error:
+            print(f"configurator error: {error}", file=sys.stderr)
+            return 2
         return gui.main(
             [
                 *(["--target", str(args.target)] if args.target else []),
-                *(["--config", str(args.import_config)] if args.import_config else []),
                 *(["--headless-smoke"] if args.headless_smoke else []),
-            ]
+            ],
+            initial_config=config,
         )
     try:
         if args.rollback is not None:

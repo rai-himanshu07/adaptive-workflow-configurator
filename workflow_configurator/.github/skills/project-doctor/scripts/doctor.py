@@ -158,6 +158,8 @@ def _tokens(root: Path, report: Report) -> None:
         for candidate in candidates:
             if not candidate.is_file() or candidate.is_symlink():
                 continue
+            if candidate.relative_to(root) == Path("docs/CURRENT_TASK.md"):
+                continue
             text = _read(candidate, report, root=root)
             if text and TOKEN_PATTERN.search(text):
                 report.add(

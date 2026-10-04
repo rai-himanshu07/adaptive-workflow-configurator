@@ -201,7 +201,11 @@ python workflow_configurator/install.py TARGET \
 The old `--policy-override` is deprecated and accepted only where v1 migration
 is unambiguous.
 
-## Task and Testing Tiers
+## Balanced Mode: Task and Testing Tiers
+
+These automatic task tiers apply to Balanced mode. In default Velocity, plans,
+checks, doctor, and review are user-invoked unless a stronger explicit policy
+override requires them.
 
 | Tier | Work | Plan | Validation |
 |---|---|---|---|

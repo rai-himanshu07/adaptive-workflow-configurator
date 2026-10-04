@@ -260,6 +260,28 @@ class ConfigModelTests(unittest.TestCase):
         self.assertEqual("Implement the API first.", config.task_details)
         self.assertEqual("cargo test && npm test && python -m unittest", config.commands["test"])
 
+    def test_gui_launch_keeps_cli_flags_and_import_overrides(self) -> None:
+        from workflow_configurator import gui, install
+
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "project"
+            saved_config = Path(temporary) / "workflow.json"
+            core.save_config(core.WorkflowConfig(project_name="Imported", execution_mode="balanced"), saved_config)
+            cases = (
+                (["--gui", "--execution-mode", "balanced", "--task-details", "Implement API", "--technology-stack", "Rust"], "balanced", "Implement API"),
+                (["--gui", "--import-config", str(saved_config), "--execution-mode", "velocity", "--task-details", "Replace task"], "velocity", "Replace task"),
+            )
+            for flags, expected_mode, expected_task in cases:
+                with self.subTest(mode=expected_mode), mock.patch.object(sys, "argv", ["install.py", str(target), *flags]), mock.patch.object(gui, "main", return_value=0) as launch:
+                    self.assertEqual(0, install.main())
+                received = launch.call_args.kwargs["initial_config"]
+                self.assertEqual(expected_mode, received.execution_mode)
+                self.assertEqual(expected_task, received.task_details)
+                if expected_mode == "balanced":
+                    self.assertEqual("Rust", received.technology_stack)
+                else:
+                    self.assertEqual("Imported", received.project_name)
+
     def test_mixed_stack_velocity_and_task_round_trip(self) -> None:
         config = core.WorkflowConfig(
             stack_profiles=("python", "react"),
@@ -1227,6 +1249,28 @@ class ProjectLifecycleTests(unittest.TestCase):
             self.assertEqual(before, snapshot(target))
             self.assertFalse((target / ".workflow_configurator").exists())
 
+    def test_failed_nested_directory_creation_removes_created_ancestors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "outer" / "nested" / "project"
+            config = core.WorkflowConfig(workflow="new", project_name="project")
+            original_mkdir = Path.mkdir
+
+            def fail_nested_mkdir(
+                directory: Path,
+                mode: int = 0o777,
+                parents: bool = False,
+                exist_ok: bool = False,
+            ) -> None:
+                if directory == target.parent:
+                    raise OSError("injected nested mkdir failure")
+                original_mkdir(directory, mode=mode, parents=parents, exist_ok=exist_ok)
+
+            with mock.patch.object(Path, "mkdir", new=fail_nested_mkdir):
+                with self.assertRaisesRegex(core.ApplyError, "was rolled back"):
+                    core.apply_project(target, config)
+            self.assertFalse((root / "outer").exists())
+
     def test_failed_restoration_preserves_recovery_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "project"
@@ -1776,6 +1820,54 @@ class GuiControllerTests(unittest.TestCase):
         self.assertTrue(core.derive_policy(on).require_protocol_guard)
         self.assertFalse(core.derive_policy(off).require_protocol_guard)
 
+    @unittest.skipUnless(
+        os.environ.get("DISPLAY") or os.environ.get("QT_QPA_PLATFORM") == "offscreen",
+        "a real or offscreen Qt display is unavailable",
+    )
+    def test_override_editor_can_recover_after_mode_change(self) -> None:
+        from PySide6.QtWidgets import QDialogButtonBox, QTableWidget
+
+        with tempfile.TemporaryDirectory() as temporary:
+            config = core.WorkflowConfig(
+                execution_mode="velocity",
+                complexity="advanced",
+                project_size="large",
+                testing_level="broad",
+                policy_overrides={"validation_tier": {"value": "focused", "reason": ""}},
+            )
+            app = WorkflowConfiguratorApp(
+                ConfiguratorController(Path(temporary) / "project", config),
+                auto_check_updates=False,
+            )
+            app.show()
+            app.execution_mode_combo.setCurrentText("balanced")
+            with self.assertRaisesRegex(core.ConfigError, "reason is required"):
+                app._form_config()
+
+            def resolve(*, reset: bool) -> None:
+                dialog = app.application.activeModalWidget()
+                self.assertIsNotNone(dialog)
+                table = dialog.findChild(QTableWidget)
+                row = list(core.POLICY_DIMENSION_VALUES).index("validation_tier")
+                buttons = dialog.findChild(QDialogButtonBox)
+                if reset:
+                    buttons.button(QDialogButtonBox.Reset).click()
+                else:
+                    table.cellWidget(row, 4).setText("Targeted checks are sufficient")
+                buttons.button(QDialogButtonBox.Save).click()
+
+            with mock.patch.object(app, "_show_error", side_effect=AssertionError("override editor blocked")):
+                app.QtCore.QTimer.singleShot(0, lambda: resolve(reset=False))
+                app._edit_overrides()
+            self.assertEqual("Targeted checks are sufficient", app._form_config().policy_overrides["validation_tier"]["reason"])
+
+            app.policy_overrides["validation_tier"]["reason"] = ""
+            with mock.patch.object(app, "_show_error", side_effect=AssertionError("override reset blocked")):
+                app.QtCore.QTimer.singleShot(0, lambda: resolve(reset=True))
+                app._edit_overrides()
+            self.assertEqual({}, app._form_config().policy_overrides)
+            app.window.close()
+
     def test_target_change_updates_derived_identity_but_not_explicit_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1808,7 +1900,7 @@ class GuiControllerTests(unittest.TestCase):
         "a real or offscreen Qt display is unavailable",
     )
     def test_real_gui_is_readable_tabbed_and_preview_gates_apply(self) -> None:
-        from PySide6.QtWidgets import QCheckBox, QRadioButton
+        from PySide6.QtWidgets import QCheckBox, QFormLayout, QRadioButton
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1842,6 +1934,13 @@ class GuiControllerTests(unittest.TestCase):
             )
             self.assertIn("Guide", WorkflowConfiguratorApp.PAGE_NAMES)
             self.assertEqual("velocity", app.execution_mode_combo.currentText())
+            mode_form = app.execution_mode_combo.parentWidget().layout()
+            self.assertIs(mode_form.itemAt(0, QFormLayout.FieldRole).widget(), app.execution_mode_combo)
+            self.assertIn("Velocity:", app.execution_mode_detail.text())
+            self.assertIn("Confirm this is the repository", app.target_hint.text())
+            app.execution_mode_combo.setCurrentText("balanced")
+            self.assertIn("Balanced:", app.execution_mode_detail.text())
+            app.execution_mode_combo.setCurrentText("velocity")
             self.assertIn("Updates & Plugins", WorkflowConfiguratorApp.PAGE_NAMES)
             self.assertEqual("new_project", app.memory_wing_edit.text())
             self.assertEqual("new-project", app.codebase_project_edit.text())
@@ -1915,7 +2014,15 @@ class GuiControllerTests(unittest.TestCase):
                             "url": "https://example.invalid/review",
                         },
                     ),
-                    monitored_changes=(),
+                    monitored_changes=(
+                        {
+                            "path": "website/src/content/docs/learning-hub/installing-and-using-plugins.md",
+                            "label": "Plugin installation guidance",
+                            "decision": "optional-local-pilot",
+                            "reviewed_sha": "1" * 40,
+                            "current_sha": "2" * 40,
+                        },
+                    ),
                 ),
                 cache,
             )
@@ -1928,7 +2035,11 @@ class GuiControllerTests(unittest.TestCase):
                 ),
             )
             self.assertTrue(cached_app.export_review_button.isEnabled())
-            self.assertEqual(1, cached_app.upstream_queue.topLevelItemCount())
+            self.assertEqual(2, cached_app.upstream_queue.topLevelItemCount())
+            self.assertIn("Monitored changes: 1", cached_app.update_status_label.text())
+            self.assertIn("Other catalog differences: 1", cached_app.update_status_label.text())
+            self.assertIn("Pending baseline decisions: 2", cached_app.update_status_label.text())
+            self.assertEqual("Monitored: Changed", cached_app.upstream_queue.topLevelItem(0).text(0))
             cached_app.upstream_queue.setCurrentItem(
                 cached_app.upstream_queue.topLevelItem(0)
             )
@@ -1936,6 +2047,38 @@ class GuiControllerTests(unittest.TestCase):
             self.assertTrue(cached_app.inspect_review_button.isEnabled())
             self.assertFalse(cached_app.save_review_button.isEnabled())
             cached_app.close_button.click()
+
+    @unittest.skipUnless(
+        os.environ.get("DISPLAY") or os.environ.get("QT_QPA_PLATFORM") == "offscreen",
+        "a real or offscreen Qt display is unavailable",
+    )
+    def test_manual_proposals_remain_visible_after_safe_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "project"
+            target.mkdir()
+            (target / "AGENTS.md").write_text("# User-owned instructions\n", encoding="utf-8")
+            app = WorkflowConfiguratorApp(
+                ConfiguratorController(target),
+                auto_check_updates=False,
+                upstream_service=core.UpstreamUpdateService(
+                    cache_path=root / "cache" / "upstream.json",
+                    ledger_path=root / "state" / "reviews.json",
+                ),
+            )
+            app.show()
+            app._preview()
+            self.assertTrue(app.apply_button.isEnabled())
+            result = app.controller.apply(expected_report=app._preview_report)
+            app._run(lambda: result, "Apply")
+            self.assertIn("1 proposal(s) still require manual merge", app.preview_label.text())
+            self.assertEqual("# User-owned instructions\n", (target / "AGENTS.md").read_text(encoding="utf-8"))
+
+            app._preview()
+            self.assertFalse(app.apply_button.isEnabled())
+            self.assertIn("no automatic changes available", app.preview_label.text())
+            self.assertIn("1 proposal(s) require manual merge", app.preview_label.text())
+            app.window.close()
 
     @unittest.skipUnless(
         os.environ.get("DISPLAY")
